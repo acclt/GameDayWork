@@ -1,0 +1,12 @@
+bin/
+obj/
+publish/
+data/
+logs/
+*.user
+*.suo
+*.userprefs
+*.log
+.vs/
+.idea/
+.vscode/
