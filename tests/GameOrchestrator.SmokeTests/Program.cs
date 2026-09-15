@@ -1,6 +1,9 @@
 using GameOrchestrator.Models;
 using GameOrchestrator.Events;
+using GameOrchestrator.Infrastructure;
 using GameOrchestrator.Services;
+using System.Globalization;
+using System.Windows;
 
 var validator = new TaskValidationService();
 var failures = new List<string>();
@@ -56,6 +59,10 @@ foreach (var profile in profiles)
 var processMonitor = new ProcessMonitorService();
 var emptySession = new RuntimeSession { RootPid = 0 };
 Assert(processMonitor.Scan(emptySession, valid).Count == 0, "未启动成功时不得把 PID 0 当作任务进程");
+
+var visibilityConverter = new EnumEqualsToVisibilityConverter();
+Assert((Visibility)visibilityConverter.Convert(CompletionDetectionMode.LogKeyword, typeof(Visibility), "LogKeyword", CultureInfo.InvariantCulture) == Visibility.Visible, "匹配的完成检测方式应显示对应字段");
+Assert((Visibility)visibilityConverter.Convert(CompletionDetectionMode.MainProcessExit, typeof(Visibility), "LogKeyword", CultureInfo.InvariantCulture) == Visibility.Collapsed, "不匹配的完成检测方式应隐藏对应字段");
 
 var integrationName = args.FirstOrDefault(value => value.StartsWith("--integration=", StringComparison.OrdinalIgnoreCase))?.Split('=', 2)[1];
 if (!string.IsNullOrWhiteSpace(integrationName))

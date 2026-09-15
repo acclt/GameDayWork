@@ -38,10 +38,21 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ScheduleConfig Schedule => _config.Schedule;
     public Array FailurePolicies => Enum.GetValues(typeof(FailurePolicy));
     public Array CompletionModes => Enum.GetValues(typeof(CompletionDetectionMode));
-    public string CurrentTaskName => CurrentSession?.TaskName ?? "暂无任务运行";
-    public string CurrentStage => CurrentSession?.Status.ToString().ToUpperInvariant() ?? "IDLE";
-    public string RootPid => CurrentSession?.RootPid > 0 ? CurrentSession.RootPid.ToString() : "—";
-    public int RelatedCount => CurrentSession?.TrackedProcesses.Count ?? 0;
+    public bool HasActiveTask => CurrentSession?.Status is TaskRunStatus.Starting or TaskRunStatus.Running or TaskRunStatus.CompletionDetected or TaskRunStatus.Cleaning or TaskRunStatus.CleanupVerifying;
+    public string CurrentTaskName => HasActiveTask ? CurrentSession!.TaskName : "—";
+    public string CurrentStage => HasActiveTask ? CurrentSession!.Status.ToString().ToUpperInvariant() : "IDLE";
+    public string RootPid => HasActiveTask && CurrentSession!.RootPid > 0 ? CurrentSession.RootPid.ToString() : "—";
+    public int RelatedCount => HasActiveTask ? CurrentSession!.TrackedProcesses.Count : 0;
+    public string CurrentStatusHeadline => HasActiveTask ? CurrentSession!.TaskName : "暂无任务运行";
+    public string CurrentStatusHint => CurrentSession?.Status switch
+    {
+        TaskRunStatus.Starting => "正在启动任务",
+        TaskRunStatus.Running => "任务正在运行",
+        TaskRunStatus.CompletionDetected => "已检测完成，准备清理",
+        TaskRunStatus.Cleaning => "正在清理关联进程",
+        TaskRunStatus.CleanupVerifying => "正在确认清理结果",
+        _ => "点击「开始执行」或等待定时任务"
+    };
     public string RecentEvent => Logs.LastOrDefault()?.Message ?? "点击“开始执行”或等待定时任务";
 
     public ICommand StartCommand { get; }
@@ -189,7 +200,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (CurrentSession is { } session) Elapsed = ((session.EndTime ?? DateTimeOffset.Now) - session.StartTime).ToString(@"hh\:mm\:ss");
         OnPropertyChanged(nameof(NextRunText)); RaiseRuntimeProperties();
     }
-    private void RaiseRuntimeProperties() { OnPropertyChanged(nameof(CurrentTaskName)); OnPropertyChanged(nameof(CurrentStage)); OnPropertyChanged(nameof(RootPid)); OnPropertyChanged(nameof(RelatedCount)); }
+    private void RaiseRuntimeProperties()
+    {
+        OnPropertyChanged(nameof(HasActiveTask));
+        OnPropertyChanged(nameof(CurrentTaskName));
+        OnPropertyChanged(nameof(CurrentStage));
+        OnPropertyChanged(nameof(RootPid));
+        OnPropertyChanged(nameof(RelatedCount));
+        OnPropertyChanged(nameof(CurrentStatusHeadline));
+        OnPropertyChanged(nameof(CurrentStatusHint));
+    }
     private void OpenLogs() { Directory.CreateDirectory(_log.LogDirectory); Process.Start(new ProcessStartInfo("explorer.exe", _log.LogDirectory) { UseShellExecute = true }); }
     public void Dispose() { _scheduler.Dispose(); _uiTimer.Stop(); }
 }

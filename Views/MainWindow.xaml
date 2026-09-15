@@ -2,6 +2,7 @@
   <Window.Resources>
     <i:OneBasedIndexConverter x:Key="OneBased" />
     <i:LogLevelBrushConverter x:Key="LogBrush" />
+    <i:EnumEqualsToVisibilityConverter x:Key="CompletionModeVisibility" />
     <Style x:Key="Title" TargetType="TextBlock">
       <Setter Property="FontSize" Value="19" />
       <Setter Property="FontWeight" Value="SemiBold" />
@@ -301,7 +302,7 @@
                       <TextBlock Text="检测方式" Style="{StaticResource Label}" />
                       <ComboBox Grid.Column="1" ItemsSource="{Binding CompletionModes}" SelectedItem="{Binding SelectedTask.CompletionMode}" />
                     </Grid>
-                    <Grid Margin="0,8,0,0">
+                    <Grid Margin="0,8,0,0" Visibility="{Binding SelectedTask.CompletionMode,Converter={StaticResource CompletionModeVisibility},ConverterParameter=SpecifiedProcessExit}">
                       <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="125" />
                         <ColumnDefinition />
@@ -309,7 +310,7 @@
                       <TextBlock Text="指定进程名" Style="{StaticResource Label}" />
                       <TextBox Grid.Column="1" Text="{Binding SelectedTask.CompletionProcessName}" ToolTip="仅在“指定进程退出”模式下使用" />
                     </Grid>
-                    <Grid Margin="0,8,0,0">
+                    <Grid Margin="0,8,0,0" Visibility="{Binding SelectedTask.CompletionMode,Converter={StaticResource CompletionModeVisibility},ConverterParameter=LogKeyword}">
                       <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="125" />
                         <ColumnDefinition />
@@ -319,7 +320,7 @@
                       <TextBox Grid.Column="1" Text="{Binding SelectedTask.CompletionLogPath}" ToolTip="支持 *.log 等通配符，会自动跟踪最新文件" />
                       <Button Grid.Column="2" Content="▣" Click="BrowseLog_Click" Margin="6,0,0,0" />
                     </Grid>
-                    <Grid Margin="0,8,0,0">
+                    <Grid Margin="0,8,0,0" Visibility="{Binding SelectedTask.CompletionMode,Converter={StaticResource CompletionModeVisibility},ConverterParameter=LogKeyword}">
                       <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="125" />
                         <ColumnDefinition />
@@ -327,7 +328,7 @@
                       <TextBlock Text="完成关键字" Style="{StaticResource Label}" />
                       <TextBox Grid.Column="1" Text="{Binding SelectedTask.CompletionKeyword}" ToolTip="仅检测本次启动后新增的日志内容" />
                     </Grid>
-                    <Grid Margin="0,8,0,0">
+                    <Grid Margin="0,8,0,0" Visibility="{Binding SelectedTask.CompletionMode,Converter={StaticResource CompletionModeVisibility},ConverterParameter=LogKeyword}">
                       <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="125" />
                         <ColumnDefinition />
@@ -335,7 +336,7 @@
                       <TextBlock Text="失败关键字（可选）" Style="{StaticResource Label}" />
                       <TextBox Grid.Column="1" Text="{Binding SelectedTask.CompletionFailureKeyword}" ToolTip="检测到后立即标记任务失败并进入清理" />
                     </Grid>
-                    <TextBlock Text="日志路径支持通配符，例如 logs\*.log；历史内容不会触发完成。" Foreground="#6E7F99" FontSize="12" Margin="125,6,0,0" />
+                    <TextBlock Text="日志路径支持通配符，例如 logs\*.log；历史内容不会触发完成。" Foreground="#6E7F99" FontSize="12" Margin="125,6,0,0" Visibility="{Binding SelectedTask.CompletionMode,Converter={StaticResource CompletionModeVisibility},ConverterParameter=LogKeyword}" />
                     <Border Style="{StaticResource Group}">
                       <TextBlock Text="运行控制" FontWeight="SemiBold" />
                     </Border>
@@ -442,8 +443,8 @@
               <Border Grid.Row="1" Background="#F7F9FC" CornerRadius="8" Margin="0,2,0,12">
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                   <TextBlock Text="◷" FontSize="52" Foreground="#7585A0" HorizontalAlignment="Center" />
-                  <TextBlock Text="暂无任务运行" FontSize="16" HorizontalAlignment="Center" />
-                  <TextBlock Text="点击「开始执行」或等待定时任务" Foreground="#73839E" Margin="0,10,0,0" />
+                  <TextBlock Text="{Binding CurrentStatusHeadline}" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                  <TextBlock Text="{Binding CurrentStatusHint}" Foreground="#73839E" Margin="0,10,0,0" />
                 </StackPanel>
               </Border>
               <Grid Grid.Row="2">
