@@ -56,6 +56,24 @@ foreach (var profile in profiles)
     Assert(LogKeywordCompletionDetector.HasMatchingFile(profile.CompletionLogPath), $"识别出的 {profile.Name} 日志模式必须有效");
 }
 
+if (profiles.FirstOrDefault(profile => profile.Name == "MFA") is { } mfaProfile)
+{
+    var existingId = Guid.NewGuid();
+    var existing = new AutomationTaskConfig
+    {
+        Id = existingId,
+        Name = "MAN",
+        Enabled = false,
+        ProgramPath = Environment.ProcessPath!,
+        CompletionMode = CompletionDetectionMode.MainProcessExit
+    };
+    existing.ProcessRules.Add(new ProcessRule { ProcessName = "custom.exe", AllowNameFallback = true });
+    KnownToolProfileService.ApplyRecommendedSettings(existing, mfaProfile);
+    Assert(existing.Id == existingId && !existing.Enabled, "应用推荐适配时应保留任务 ID 和启用状态");
+    Assert(existing.Name == "MFA" && existing.CompletionMode == CompletionDetectionMode.LogKeyword, "已有 MFA 任务也应更新为推荐日志检测配置");
+    Assert(existing.ProcessRules.Any(rule => rule.ProcessName == "custom.exe") && existing.ProcessRules.Any(rule => rule.ExecutableDirectory == existing.WorkingDirectory), "应用推荐适配时应保留自定义规则并加入安装目录规则");
+}
+
 var processMonitor = new ProcessMonitorService();
 var emptySession = new RuntimeSession { RootPid = 0 };
 Assert(processMonitor.Scan(emptySession, valid).Count == 0, "未启动成功时不得把 PID 0 当作任务进程");

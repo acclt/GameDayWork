@@ -13,7 +13,7 @@
 - EXE 启动、主进程退出、指定进程退出或日志关键字检测、超时兜底
 - 日志检测支持 `*.log` 通配符和按日期轮转，只读取本次启动后的新增内容
 - 可选失败关键字；外部工具明确报错时立即失败，不再傻等到最长运行时间
-- 可自动识别常见 `Tool` / `Tools` 目录中的 BGI、MAA、ZOG、MFA、M7A，并填入对应启动参数与完成标志
+- 可重复应用 BGI、MAA、ZOG、MFA、M7A 推荐适配；自动更新启动参数、权限、日志完成/失败标志和安装目录规则
 - 每次执行创建独立 RuntimeSession
 - Job Object、父子进程树、完整路径、启动时间与可选名称规则
 - 正常关闭、强制结束、清理重试与二次验证
@@ -46,3 +46,5 @@ dotnet publish .\GameOrchestrator.csproj -c Release -r win-x64 --self-contained 
 开发中已确认的问题见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md)。
 
 真实工具的端到端验证结果见 [TEST_RESULTS.md](TEST_RESULTS.md)。
+
+五个主要工具的适配与验证进度见 [ADAPTER_STATUS.md](ADAPTER_STATUS.md)。

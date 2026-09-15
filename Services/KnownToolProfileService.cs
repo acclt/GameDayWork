@@ -47,6 +47,36 @@ public sealed class KnownToolProfileService
         return results;
     }
 
+    public static void ApplyRecommendedSettings(AutomationTaskConfig target, AutomationTaskConfig profile)
+    {
+        target.Name = profile.Name;
+        target.ProgramPath = profile.ProgramPath;
+        target.Arguments = profile.Arguments;
+        target.CompletionMode = profile.CompletionMode;
+        target.CompletionProcessName = profile.CompletionProcessName;
+        target.CompletionLogPath = profile.CompletionLogPath;
+        target.CompletionKeyword = profile.CompletionKeyword;
+        target.CompletionFailureKeyword = profile.CompletionFailureKeyword;
+        target.MaxRunMinutes = profile.MaxRunMinutes;
+        target.TrackChildren = true;
+        target.UseJobObject = true;
+        target.RunAsAdministrator = profile.RunAsAdministrator;
+        if (string.IsNullOrWhiteSpace(target.Description) || target.Description.StartsWith("自动化日常任务", StringComparison.Ordinal))
+            target.Description = profile.Description;
+
+        var directoryRule = target.ProcessRules.FirstOrDefault(IsGeneratedDirectoryRule);
+        if (directoryRule is null)
+            target.ProcessRules.Add(new ProcessRule { ExecutableDirectory = target.WorkingDirectory, Monitor = true, Cleanup = true });
+        else
+            directoryRule.ExecutableDirectory = target.WorkingDirectory;
+    }
+
+    private static bool IsGeneratedDirectoryRule(ProcessRule rule) =>
+        string.IsNullOrWhiteSpace(rule.ProcessName) &&
+        string.IsNullOrWhiteSpace(rule.ExecutablePath) &&
+        !string.IsNullOrWhiteSpace(rule.ExecutableDirectory) &&
+        rule.Monitor && rule.Cleanup && !rule.AllowNameFallback;
+
     private static IEnumerable<string> SearchRoots()
     {
         foreach (var drive in DriveInfo.GetDrives().Where(drive => drive.IsReady && drive.DriveType == DriveType.Fixed))

@@ -93,7 +93,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         MoveDownCommand = new RelayCommand(() => MoveSelected(1));
         OpenLogsCommand = new RelayCommand(OpenLogs);
         ResetTaskCommand = new AsyncRelayCommand(ResetSelectedTaskAsync, () => SelectedTask is not null && !_queue.IsRunning);
-        ImportToolsCommand = new RelayCommand(ImportKnownTools, () => !_queue.IsRunning);
+        ImportToolsCommand = new AsyncRelayCommand(ApplyKnownToolsAsync, () => !_queue.IsRunning);
         _uiTimer = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Background, (_, _) => TickUi(), Application.Current.Dispatcher);
     }
 
@@ -165,25 +165,34 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Tasks[index] = saved; SelectedTask = saved;
         await _log.WriteAsync(LogLevel.Info, $"已重置任务配置：{saved.Name}");
     }
-    private void ImportKnownTools()
+    private async Task ApplyKnownToolsAsync()
     {
         var discovered = _toolProfiles.Discover();
-        var imported = 0;
+        var added = 0;
+        var updated = 0;
         foreach (var profile in discovered)
         {
             var aliases = profile.Name switch { "MAA" => new[] { "MAA", "MMA" }, "MFA" => new[] { "MFA", "MAN" }, _ => new[] { profile.Name } };
             var existing = Tasks.FirstOrDefault(task => aliases.Contains(task.Name, StringComparer.OrdinalIgnoreCase));
-            if (existing is not null && !string.IsNullOrWhiteSpace(existing.ProgramPath)) continue;
             if (existing is not null)
             {
-                var index = Tasks.IndexOf(existing);
-                Tasks[index] = profile;
-                if (SelectedTask == existing) SelectedTask = profile;
+                KnownToolProfileService.ApplyRecommendedSettings(existing, profile);
+                updated++;
             }
-            else Tasks.Add(profile);
-            imported++;
+            else
+            {
+                Tasks.Add(profile);
+                added++;
+            }
         }
-        NoticeRequested?.Invoke(imported > 0 ? $"已识别并填入 {imported} 个工具配置。请确认后保存。" : "未发现新的工具，已有配置不会被覆盖。");
+        if (added + updated > 0)
+        {
+            await SaveAsync();
+            await _log.WriteAsync(LogLevel.Success, $"五项目适配已应用：新增 {added} 项，更新 {updated} 项");
+        }
+        NoticeRequested?.Invoke(added + updated > 0
+            ? $"已应用本机工具适配：新增 {added} 项，更新 {updated} 项。"
+            : "未发现 BGI、MAA、ZOG、MFA 或 M7A。");
     }
     private void RaiseCommandStates()
     {
@@ -193,7 +202,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         ((RelayCommand)DeleteTaskCommand).RaiseCanExecuteChanged();
         ((RelayCommand)DuplicateTaskCommand).RaiseCanExecuteChanged();
         ((AsyncRelayCommand)ResetTaskCommand).RaiseCanExecuteChanged();
-        ((RelayCommand)ImportToolsCommand).RaiseCanExecuteChanged();
+        ((AsyncRelayCommand)ImportToolsCommand).RaiseCanExecuteChanged();
     }
     private void TickUi()
     {
