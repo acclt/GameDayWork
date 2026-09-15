@@ -1,6 +1,6 @@
 bin/
 obj/
-publish/
+publish*/
 data/
 logs/
 *.user

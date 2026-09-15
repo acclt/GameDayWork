@@ -290,14 +290,6 @@
                       <TextBlock Text="启动参数（可选）" Style="{StaticResource Label}" />
                       <TextBox Grid.Column="1" Text="{Binding SelectedTask.Arguments}" />
                     </Grid>
-                    <Grid>
-                      <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="125" />
-                        <ColumnDefinition />
-                      </Grid.ColumnDefinitions>
-                      <TextBlock Text="工作目录（可选）" Style="{StaticResource Label}" />
-                      <TextBox Grid.Column="1" Text="{Binding SelectedTask.WorkingDirectory}" />
-                    </Grid>
                     <Border Style="{StaticResource Group}">
                       <TextBlock Text="完成检测" FontWeight="SemiBold" />
                     </Border>

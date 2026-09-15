@@ -9,6 +9,11 @@ void Assert(bool condition, string message) { if (!condition) failures.Add(messa
 var empty = new AutomationTaskConfig { Name = "测试任务" };
 Assert(validator.Validate([empty]).Any(x => x.Message.Contains("程序路径")), "空程序路径应校验失败");
 
+var inferredDirectoryTask = new AutomationTaskConfig { WorkingDirectory = "旧目录" };
+var inferredProgramPath = Path.Combine(Path.GetTempPath(), "tool", "sample.exe");
+inferredDirectoryTask.ProgramPath = inferredProgramPath;
+Assert(inferredDirectoryTask.WorkingDirectory == Path.GetDirectoryName(inferredProgramPath), "更换程序路径时应自动同步工作目录");
+
 var valid = new AutomationTaskConfig
 {
     Name = "有效任务", ProgramPath = Environment.ProcessPath!, WorkingDirectory = AppContext.BaseDirectory,

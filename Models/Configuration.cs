@@ -27,7 +27,7 @@ public sealed class AutomationTaskConfig : ObservableObject
     public string Name { get => _name; set { if (SetProperty(ref _name, value)) OnPropertyChanged(nameof(IconText)); } }
     [JsonIgnore] public string IconText => string.IsNullOrWhiteSpace(Name) ? "?" : Name[..1].ToUpperInvariant();
     public bool Enabled { get => _enabled; set => SetProperty(ref _enabled, value); }
-    public string ProgramPath { get => _programPath; set { if (SetProperty(ref _programPath, value) && string.IsNullOrWhiteSpace(WorkingDirectory)) WorkingDirectory = Path.GetDirectoryName(value) ?? ""; } }
+    public string ProgramPath { get => _programPath; set { if (SetProperty(ref _programPath, value)) WorkingDirectory = Path.GetDirectoryName(value) ?? ""; } }
     public string Arguments { get => _arguments; set => SetProperty(ref _arguments, value); }
     public string WorkingDirectory { get => _workingDirectory; set => SetProperty(ref _workingDirectory, value); }
     public CompletionDetectionMode CompletionMode { get => _completionMode; set => SetProperty(ref _completionMode, value); }
