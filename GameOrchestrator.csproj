@@ -8,4 +8,9 @@
     <AssemblyName>GameOrchestrator</AssemblyName>
     <RootNamespace>GameOrchestrator</RootNamespace>
   </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="tests\**\*.cs" />
+    <EmbeddedResource Remove="tests\**\*" />
+    <Page Remove="tests\**\*.xaml" />
+  </ItemGroup>
 </Project>

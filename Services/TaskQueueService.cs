@@ -10,12 +10,23 @@ public sealed class TaskQueueService(TaskRunnerService runner, LoggingService lo
     private CancellationTokenSource? _cts;
     public QueueRunStatus Status { get => _status; private set => SetProperty(ref _status, value); }
     public bool IsRunning => Status is QueueRunStatus.Running or QueueRunStatus.Stopping;
-    public async Task RunAsync(IEnumerable<AutomationTaskConfig> source, int intervalSeconds, FailurePolicy policy)
+    public Task RunAsync(IEnumerable<AutomationTaskConfig> source, int intervalSeconds, FailurePolicy policy) =>
+        RunCoreAsync(source.Where(t => t.Enabled).ToList(), intervalSeconds, policy);
+    public Task RunSingleAsync(AutomationTaskConfig task, FailurePolicy policy) =>
+        RunCoreAsync([task], 0, policy);
+    private async Task RunCoreAsync(IReadOnlyList<AutomationTaskConfig> tasks, int intervalSeconds, FailurePolicy policy)
     {
         if (IsRunning) return;
         _cts = new(); Status = QueueRunStatus.Running; events.Publish(new QueueStartedEvent());
-        var tasks = source.Where(t => t.Enabled).ToList(); foreach (var t in tasks) t.Status = TaskRunStatus.Waiting;
+        foreach (var t in tasks) t.Status = TaskRunStatus.Waiting;
         await log.WriteAsync(LogLevel.Info, $"开始执行任务队列（{tasks.Count} 项）");
+        if (tasks.Count == 0)
+        {
+            Status = QueueRunStatus.Completed;
+            await log.WriteAsync(LogLevel.Warning, "没有可执行的任务");
+            _cts.Dispose(); _cts = null;
+            return;
+        }
         try
         {
             foreach (var task in tasks)

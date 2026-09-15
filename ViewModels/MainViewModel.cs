@@ -15,6 +15,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly ConfigService _configService = new();
     private readonly LoggingService _log = new();
     private readonly SchedulerService _scheduler = new();
+    private readonly TaskValidationService _validator = new();
     private readonly TaskQueueService _queue;
     private AppConfig _config = new();
     private AutomationTaskConfig? _selectedTask;
@@ -25,13 +26,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public ObservableCollection<AutomationTaskConfig> Tasks => _config.Tasks;
     public ObservableCollection<LogEntry> Logs { get; } = [];
-    public AutomationTaskConfig? SelectedTask { get => _selectedTask; set => SetProperty(ref _selectedTask, value); }
+    public AutomationTaskConfig? SelectedTask { get => _selectedTask; set { if (SetProperty(ref _selectedTask, value)) RaiseCommandStates(); } }
     public RuntimeSession? CurrentSession { get => _currentSession; private set { if (SetProperty(ref _currentSession, value)) RaiseRuntimeProperties(); } }
     public string StatusText { get => _statusText; private set => SetProperty(ref _statusText, value); }
     public string Elapsed { get => _elapsed; private set => SetProperty(ref _elapsed, value); }
     public string NextRunText => _scheduler.NextRun is { } next ? next.ToString("yyyy/MM/dd HH:mm") : "未启用";
     public int TaskIntervalSeconds { get => _config.TaskIntervalSeconds; set { _config.TaskIntervalSeconds = Math.Max(0, value); OnPropertyChanged(); } }
     public FailurePolicy FailurePolicy { get => _config.FailurePolicy; set { _config.FailurePolicy = value; OnPropertyChanged(); } }
+    public QueueExecutionMode ExecutionMode { get => _config.ExecutionMode; set { _config.ExecutionMode = value; OnPropertyChanged(); } }
     public ScheduleConfig Schedule => _config.Schedule;
     public Array FailurePolicies => Enum.GetValues(typeof(FailurePolicy));
     public Array CompletionModes => Enum.GetValues(typeof(CompletionDetectionMode));
@@ -42,6 +44,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string RecentEvent => Logs.LastOrDefault()?.Message ?? "点击“开始执行”或等待定时任务";
 
     public ICommand StartCommand { get; }
+    public ICommand RunOnceCommand { get; }
     public ICommand StopCommand { get; }
     public ICommand AddTaskCommand { get; }
     public ICommand DeleteTaskCommand { get; }
@@ -51,6 +54,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ICommand MoveUpCommand { get; }
     public ICommand MoveDownCommand { get; }
     public ICommand OpenLogsCommand { get; }
+    public ICommand ResetTaskCommand { get; }
+    public event Action<string>? ValidationFailed;
 
     public MainViewModel()
     {
@@ -62,7 +67,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         runner.SessionChanged += session => Application.Current.Dispatcher.Invoke(() => CurrentSession = session);
         _log.EntryWritten += entry => Application.Current.Dispatcher.Invoke(() => { Logs.Add(entry); if (Logs.Count > 2000) Logs.RemoveAt(0); OnPropertyChanged(nameof(RecentEvent)); });
         _queue.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(TaskQueueService.Status)) Application.Current.Dispatcher.Invoke(UpdateQueueStatus); };
-        StartCommand = new AsyncRelayCommand(RunQueueAsync, () => !_queue.IsRunning);
+        StartCommand = new AsyncRelayCommand(RunByModeAsync, () => !_queue.IsRunning);
+        RunOnceCommand = new AsyncRelayCommand(RunFullQueueAsync, () => !_queue.IsRunning);
         StopCommand = new RelayCommand(() => _queue.Stop(), () => _queue.IsRunning);
         AddTaskCommand = new RelayCommand(AddTask);
         DeleteTaskCommand = new RelayCommand(DeleteTask, () => SelectedTask is not null && !_queue.IsRunning);
@@ -72,6 +78,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         MoveUpCommand = new RelayCommand(() => MoveSelected(-1));
         MoveDownCommand = new RelayCommand(() => MoveSelected(1));
         OpenLogsCommand = new RelayCommand(OpenLogs);
+        ResetTaskCommand = new AsyncRelayCommand(ResetSelectedTaskAsync, () => SelectedTask is not null && !_queue.IsRunning);
         _uiTimer = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Background, (_, _) => TickUi(), Application.Current.Dispatcher);
     }
 
@@ -80,7 +87,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _config = await _configService.LoadAsync();
         OnPropertyChanged(nameof(Tasks)); OnPropertyChanged(nameof(TaskIntervalSeconds)); OnPropertyChanged(nameof(FailurePolicy)); OnPropertyChanged(nameof(Schedule));
         SelectedTask = Tasks.FirstOrDefault();
-        _scheduler.Start(_config.Schedule, RunQueueAsync);
+        _scheduler.Start(_config.Schedule, RunFullQueueAsync);
         OnPropertyChanged(nameof(NextRunText));
         await _log.WriteAsync(LogLevel.Info, $"程序启动，已加载任务队列（{Tasks.Count} 项）");
     }
@@ -92,15 +99,37 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var oldIndex = Tasks.IndexOf(source); var newIndex = Tasks.IndexOf(target);
         if (oldIndex >= 0 && newIndex >= 0) Tasks.Move(oldIndex, newIndex);
     }
-    private async Task RunQueueAsync()
+    private Task RunByModeAsync() => ExecutionMode == QueueExecutionMode.Single
+        ? RunSingleTaskAsync()
+        : RunFullQueueAsync();
+    private async Task RunFullQueueAsync()
     {
-        await SaveAsync(); await _queue.RunAsync(Tasks, TaskIntervalSeconds, FailurePolicy);
-        ((AsyncRelayCommand)StartCommand).RaiseCanExecuteChanged(); ((RelayCommand)StopCommand).RaiseCanExecuteChanged();
+        var tasks = Tasks.Where(t => t.Enabled).ToList();
+        if (!await ValidateBeforeRunAsync(tasks)) return;
+        await _queue.RunAsync(tasks, TaskIntervalSeconds, FailurePolicy);
+        RaiseCommandStates();
+    }
+    private async Task RunSingleTaskAsync()
+    {
+        if (SelectedTask is null) { ValidationFailed?.Invoke("请先选择一个任务。"); return; }
+        if (!await ValidateBeforeRunAsync([SelectedTask])) return;
+        await _queue.RunSingleAsync(SelectedTask, FailurePolicy);
+        RaiseCommandStates();
+    }
+    private async Task<bool> ValidateBeforeRunAsync(IReadOnlyList<AutomationTaskConfig> tasks)
+    {
+        if (tasks.Count == 0) { ValidationFailed?.Invoke("没有已启用的任务可执行。"); return false; }
+        var issues = _validator.Validate(tasks);
+        if (issues.Count == 0) { await SaveAsync(); return true; }
+        var message = string.Join(Environment.NewLine, issues.Select(x => $"• {x.TaskName}：{x.Message}"));
+        foreach (var issue in issues) await _log.WriteAsync(LogLevel.Error, $"配置校验失败 - {issue.TaskName}：{issue.Message}");
+        ValidationFailed?.Invoke(message);
+        return false;
     }
     private void UpdateQueueStatus()
     {
         StatusText = _queue.Status switch { QueueRunStatus.Running => "执行中", QueueRunStatus.Stopping => "正在停止", QueueRunStatus.Completed => "已完成", QueueRunStatus.Failed => "执行失败", _ => "空闲中" };
-        ((AsyncRelayCommand)StartCommand).RaiseCanExecuteChanged(); ((RelayCommand)StopCommand).RaiseCanExecuteChanged();
+        RaiseCommandStates();
     }
     private void AddTask() { var task = new AutomationTaskConfig(); Tasks.Add(task); SelectedTask = task; }
     private void DeleteTask() { if (SelectedTask is null) return; var index = Tasks.IndexOf(SelectedTask); Tasks.Remove(SelectedTask); SelectedTask = Tasks.ElementAtOrDefault(Math.Min(index, Tasks.Count - 1)); }
@@ -112,6 +141,24 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Tasks.Insert(Tasks.IndexOf(SelectedTask) + 1, copy); SelectedTask = copy;
     }
     private void MoveSelected(int offset) { if (SelectedTask is null) return; var from = Tasks.IndexOf(SelectedTask); var to = from + offset; if (to >= 0 && to < Tasks.Count) Tasks.Move(from, to); }
+    private async Task ResetSelectedTaskAsync()
+    {
+        if (SelectedTask is null) return;
+        var index = Tasks.IndexOf(SelectedTask);
+        var saved = (await _configService.LoadAsync()).Tasks.FirstOrDefault(t => t.Id == SelectedTask.Id);
+        if (saved is null) { ValidationFailed?.Invoke("该任务尚未保存，无法重置。"); return; }
+        Tasks[index] = saved; SelectedTask = saved;
+        await _log.WriteAsync(LogLevel.Info, $"已重置任务配置：{saved.Name}");
+    }
+    private void RaiseCommandStates()
+    {
+        ((AsyncRelayCommand)StartCommand).RaiseCanExecuteChanged();
+        ((AsyncRelayCommand)RunOnceCommand).RaiseCanExecuteChanged();
+        ((RelayCommand)StopCommand).RaiseCanExecuteChanged();
+        ((RelayCommand)DeleteTaskCommand).RaiseCanExecuteChanged();
+        ((RelayCommand)DuplicateTaskCommand).RaiseCanExecuteChanged();
+        ((AsyncRelayCommand)ResetTaskCommand).RaiseCanExecuteChanged();
+    }
     private void TickUi()
     {
         if (CurrentSession is { } session) Elapsed = ((session.EndTime ?? DateTimeOffset.Now) - session.StartTime).ToString(@"hh\:mm\:ss");

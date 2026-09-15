@@ -87,6 +87,7 @@ public sealed class NotificationConfig
 public sealed class AppConfig
 {
     public ObservableCollection<AutomationTaskConfig> Tasks { get; set; } = [];
+    public QueueExecutionMode ExecutionMode { get; set; } = QueueExecutionMode.Sequential;
     public int TaskIntervalSeconds { get; set; } = 5;
     public FailurePolicy FailurePolicy { get; set; } = FailurePolicy.ForceCleanupAndContinue;
     public ScheduleConfig Schedule { get; set; } = new();

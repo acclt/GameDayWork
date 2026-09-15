@@ -6,6 +6,8 @@
 
 - WPF 三栏界面、任务状态高亮、实时与文件日志
 - 任务增删、复制、启停、按钮及拖放排序
+- 顺序执行/单独执行模式，运行一次不改变定时计划
+- 执行前配置校验、配置重置、中文选项和日志等级筛选
 - 明确的任务/队列状态机与串行队列
 - EXE 启动、主进程或指定进程退出检测、超时兜底
 - 每次执行创建独立 RuntimeSession
@@ -21,6 +23,12 @@
 ```powershell
 dotnet build .\GameOrchestrator.csproj
 dotnet run --project .\GameOrchestrator.csproj
+```
+
+运行无需第三方框架的冒烟测试：
+
+```powershell
+dotnet run --project .\tests\GameOrchestrator.SmokeTests\GameOrchestrator.SmokeTests.csproj
 ```
 
 发布 Windows EXE：

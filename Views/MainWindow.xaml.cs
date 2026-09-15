@@ -1,7 +1,9 @@
 using System.Collections.Specialized;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Media;
 using Microsoft.Win32;
 using GameOrchestrator.Models;
 using GameOrchestrator.ViewModels;
@@ -15,7 +17,13 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent(); DataContext = _viewModel;
-        Loaded += async (_, _) => { await _viewModel.InitializeAsync(); _viewModel.Logs.CollectionChanged += LogsChanged; };
+        Loaded += async (_, _) =>
+        {
+            await _viewModel.InitializeAsync();
+            _viewModel.Logs.CollectionChanged += LogsChanged;
+            _viewModel.ValidationFailed += ShowValidationErrors;
+            WirePlaceholderControls();
+        };
         Closing += (_, _) => { _viewModel.SaveAsync().GetAwaiter().GetResult(); _viewModel.Dispose(); };
     }
     private void Browse_Click(object sender, RoutedEventArgs e)
@@ -30,6 +38,58 @@ public partial class MainWindow : Window
     }
     private void Policy_Click(object sender, RoutedEventArgs e) => MessageBox.Show(this, "请在左下角“异常时”下拉框中选择执行策略。", "执行策略", MessageBoxButton.OK, MessageBoxImage.Information);
     private void ClearLogs_Click(object sender, RoutedEventArgs e) => _viewModel.Logs.Clear();
+    private void ShowValidationErrors(string message) => MessageBox.Show(this, message, "无法开始执行", MessageBoxButton.OK, MessageBoxImage.Warning);
+    private void WirePlaceholderControls()
+    {
+        foreach (var button in FindVisualChildren<Button>(this))
+        {
+            var text = button.Content?.ToString();
+            if (text?.Contains("运行一次") == true) button.Command = _viewModel.RunOnceCommand;
+            else if (text == "重置") button.Command = _viewModel.ResetTaskCommand;
+        }
+        foreach (var radio in FindVisualChildren<RadioButton>(this))
+        {
+            var text = radio.Content?.ToString() ?? "";
+            if (text.StartsWith("顺序执行")) { radio.IsChecked = _viewModel.ExecutionMode == QueueExecutionMode.Sequential; radio.Checked += ExecutionMode_Checked; }
+            else if (text.StartsWith("单独执行")) { radio.IsChecked = _viewModel.ExecutionMode == QueueExecutionMode.Single; radio.Checked += ExecutionMode_Checked; }
+        }
+        foreach (var combo in FindVisualChildren<ComboBox>(this))
+        {
+            if (combo.Items.Count > 0 && combo.Items[0] is ComboBoxItem item && item.Content?.ToString() == "全部")
+            {
+                foreach (var level in new[] { "INFO", "SUCCESS", "WARNING", "ERROR" }) combo.Items.Add(new ComboBoxItem { Content = level });
+                combo.SelectionChanged += LogFilter_SelectionChanged;
+            }
+            else if (combo.ItemsSource is not null) ApplyEnumTemplate(combo);
+        }
+    }
+    private void ExecutionMode_Checked(object sender, RoutedEventArgs e)
+    {
+        var text = (sender as RadioButton)?.Content?.ToString() ?? "";
+        _viewModel.ExecutionMode = text.StartsWith("单独执行") ? QueueExecutionMode.Single : QueueExecutionMode.Sequential;
+    }
+    private void LogFilter_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        var selected = ((sender as ComboBox)?.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "全部";
+        CollectionViewSource.GetDefaultView(_viewModel.Logs).Filter = item => selected == "全部" || item is LogEntry entry && entry.LevelText == selected;
+    }
+    private static void ApplyEnumTemplate(ComboBox combo)
+    {
+#pragma warning disable CS0618
+        var text = new FrameworkElementFactory(typeof(TextBlock));
+        text.SetBinding(TextBlock.TextProperty, new Binding { Converter = new Infrastructure.EnumDisplayConverter() });
+        combo.ItemTemplate = new DataTemplate { VisualTree = text };
+#pragma warning restore CS0618
+    }
+    private static IEnumerable<T> FindVisualChildren<T>(DependencyObject root) where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is T match) yield return match;
+            foreach (var descendant in FindVisualChildren<T>(child)) yield return descendant;
+        }
+    }
     private async void SaveConfig_Click(object sender, RoutedEventArgs e)
     {
         await _viewModel.SaveAsync();
