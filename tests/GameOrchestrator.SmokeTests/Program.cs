@@ -49,11 +49,23 @@ Directory.Delete(logDirectory, true);
 
 var profiles = new KnownToolProfileService().Discover();
 Assert(profiles.Select(profile => profile.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() == profiles.Count, "本机工具识别结果不应重复");
+var expectedProcesses = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+{
+    ["BGI"] = "BetterGI.exe",
+    ["MAA"] = "MAA.exe",
+    ["ZOG"] = "OneDragon-Launcher.exe",
+    ["MFA"] = "MFAAvalonia.exe",
+    ["M7A"] = "March7th Assistant.exe"
+};
 foreach (var profile in profiles)
 {
     Assert(File.Exists(profile.ProgramPath), $"识别出的 {profile.Name} 程序必须存在");
-    Assert(profile.CompletionMode == CompletionDetectionMode.LogKeyword, $"识别出的 {profile.Name} 应使用日志完成检测");
-    Assert(LogKeywordCompletionDetector.HasMatchingFile(profile.CompletionLogPath), $"识别出的 {profile.Name} 日志模式必须有效");
+    Assert(profile.CompletionMode == CompletionDetectionMode.SpecifiedProcessExit, $"识别出的 {profile.Name} 应使用指定进程退出检测");
+    Assert(expectedProcesses.TryGetValue(profile.Name, out var expectedProcess) && profile.CompletionProcessName == expectedProcess,
+        $"识别出的 {profile.Name} 应监控正确的任务进程");
+    Assert(profile.ProcessRules.Any(rule => rule.Monitor && rule.Cleanup && rule.AllowNameFallback &&
+        string.Equals(rule.ProcessName, profile.CompletionProcessName, StringComparison.OrdinalIgnoreCase)),
+        $"识别出的 {profile.Name} 应具有安全的进程监控与清理规则");
 }
 
 if (profiles.FirstOrDefault(profile => profile.Name == "MFA") is { } mfaProfile)
@@ -70,7 +82,9 @@ if (profiles.FirstOrDefault(profile => profile.Name == "MFA") is { } mfaProfile)
     existing.ProcessRules.Add(new ProcessRule { ProcessName = "custom.exe", AllowNameFallback = true });
     KnownToolProfileService.ApplyRecommendedSettings(existing, mfaProfile);
     Assert(existing.Id == existingId && !existing.Enabled, "应用推荐适配时应保留任务 ID 和启用状态");
-    Assert(existing.Name == "MFA" && existing.CompletionMode == CompletionDetectionMode.LogKeyword, "已有 MFA 任务也应更新为推荐日志检测配置");
+    Assert(existing.Name == "MFA" && existing.CompletionMode == CompletionDetectionMode.SpecifiedProcessExit, "已有 MFA 任务也应更新为指定进程退出检测");
+    Assert(existing.CompletionProcessName == "MFAAvalonia.exe", "MFA 应监控其实际任务进程");
+    Assert(existing.WorkingDirectory == mfaProfile.WorkingDirectory, "应用推荐适配时应同步程序工作目录");
     Assert(existing.ProcessRules.Any(rule => rule.ProcessName == "custom.exe") && existing.ProcessRules.Any(rule => rule.ExecutableDirectory == existing.WorkingDirectory), "应用推荐适配时应保留自定义规则并加入安装目录规则");
 }
 

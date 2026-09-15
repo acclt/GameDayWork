@@ -28,6 +28,14 @@ public sealed class TaskRunnerService(ProcessMonitorService monitor, ProcessClea
                 Verb = task.RunAsAdministrator ? "runas" : "",
                 WorkingDirectory = string.IsNullOrWhiteSpace(task.WorkingDirectory) ? Path.GetDirectoryName(task.ProgramPath)! : task.WorkingDirectory
             };
+            if (!task.RunAsAdministrator)
+            {
+                // 构建/测试宿主可能注入私有 .NET 路径，外部自动化工具应按其正常系统环境解析运行时。
+                startInfo.Environment.Remove("DOTNET_HOST_PATH");
+                startInfo.Environment.Remove("DOTNET_ROOT");
+                startInfo.Environment.Remove("DOTNET_ROOT_X64");
+                startInfo.Environment.Remove("DOTNET_ROOT_X86");
+            }
             root = Process.Start(startInfo) ?? throw new InvalidOperationException("进程启动失败");
             session.RootPid = root.Id;
             session.RootExecutablePath = Path.GetFullPath(task.ProgramPath);
@@ -83,6 +91,7 @@ public sealed class TaskRunnerService(ProcessMonitorService monitor, ProcessClea
             ? new LogKeywordCompletionDetector(task.CompletionLogPath, task.CompletionFailureKeyword)
             : null;
         bool targetSeen = false;
+        DateTimeOffset? targetMissingSince = null;
         while (true)
         {
             token.ThrowIfCancellationRequested();
@@ -95,8 +104,16 @@ public sealed class TaskRunnerService(ProcessMonitorService monitor, ProcessClea
             {
                 var target = Path.GetFileNameWithoutExtension(task.CompletionProcessName);
                 var matches = session.TrackedProcesses.Where(p => string.Equals(p.ProcessName, target, StringComparison.OrdinalIgnoreCase)).ToList();
-                targetSeen |= matches.Count > 0;
-                if (targetSeen && matches.Count == 0) return;
+                if (matches.Count > 0)
+                {
+                    targetSeen = true;
+                    targetMissingSince = null;
+                }
+                else if (targetSeen)
+                {
+                    targetMissingSince ??= DateTimeOffset.Now;
+                    if (DateTimeOffset.Now - targetMissingSince >= TimeSpan.FromSeconds(3)) return;
+                }
             }
             await Task.Delay(700, token);
         }

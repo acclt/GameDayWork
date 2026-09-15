@@ -3,18 +3,18 @@ using GameOrchestrator.Models;
 namespace GameOrchestrator.Services;
 
 public sealed record KnownToolProfile(
-    string Name, string ExecutablePattern, string Arguments,
+    string Name, string ExecutablePattern, string Arguments, string CompletionProcessName,
     string LogPattern, string CompletionKeyword, string FailureKeyword, int MaxRunMinutes);
 
 public sealed class KnownToolProfileService
 {
     private static readonly KnownToolProfile[] Profiles =
     [
-        new("BGI", "BGI\\BetterGI.exe", "--startOneDragon", "BGI\\log\\better-genshin-impact*.log", "一条龙和配置组任务结束", "一条龙在启动阶段被取消", 180),
-        new("MAA", "MAA\\MAA-*-win-x64\\MAA.exe", "", "MAA\\MAA-*-win-x64\\debug\\gui.log", "任务已全部完成！", "", 120),
-        new("ZOG", "ZOG\\OneDragon-Launcher.exe", "-o -c", "ZOG\\.log\\log.txt", "指令[ 一条龙 ] 执行成功 返回状态 全部结束", "指令[ 一条龙 ] 执行失败", 120),
-        new("MFA", "MAN\\MaaAutoNaruto-*\\MFAAvalonia.exe", "", "MAN\\MaaAutoNaruto-*\\logs\\log-*.log", "任务已全部完成！", "停止前状态：FAILED", 120),
-        new("M7A", "M7A\\March7thAssistant_full\\March7th Launcher.exe", "main -e", "M7A\\March7thAssistant_full\\logs\\*.log", "游戏终止：StarRail", "", 180)
+        new("BGI", "BGI\\BetterGI.exe", "--startOneDragon", "BetterGI.exe", "BGI\\log\\better-genshin-impact*.log", "一条龙和配置组任务结束", "一条龙在启动阶段被取消", 180),
+        new("MAA", "MAA\\MAA-*-win-x64\\MAA.exe", "", "MAA.exe", "MAA\\MAA-*-win-x64\\debug\\gui.log", "任务已全部完成！", "", 120),
+        new("ZOG", "ZOG\\OneDragon-Launcher.exe", "-o -c", "OneDragon-Launcher.exe", "ZOG\\.log\\log.txt", "指令[ 一条龙 ] 执行成功 返回状态 全部结束", "指令[ 一条龙 ] 执行失败", 120),
+        new("MFA", "MAN\\MaaAutoNaruto-*\\MFAAvalonia.exe", "", "MFAAvalonia.exe", "MAN\\MaaAutoNaruto-*\\logs\\log-*.log", "任务已全部完成！", "停止前状态：FAILED", 120),
+        new("M7A", "M7A\\March7thAssistant_full\\March7th Launcher.exe", "main -e", "March7th Assistant.exe", "M7A\\March7thAssistant_full\\logs\\*.log", "游戏终止：StarRail", "", 180)
     ];
 
     public IReadOnlyList<AutomationTaskConfig> Discover()
@@ -33,15 +33,16 @@ public sealed class KnownToolProfileService
                 ProgramPath = executable,
                 WorkingDirectory = Path.GetDirectoryName(executable) ?? "",
                 Arguments = profile.Arguments,
-                CompletionMode = CompletionDetectionMode.LogKeyword,
+                CompletionMode = CompletionDetectionMode.SpecifiedProcessExit,
+                CompletionProcessName = profile.CompletionProcessName,
                 CompletionLogPath = logPattern,
                 CompletionKeyword = profile.CompletionKeyword,
                 CompletionFailureKeyword = profile.FailureKeyword,
                 RunAsAdministrator = profile.Name == "M7A",
                 MaxRunMinutes = profile.MaxRunMinutes,
-                Description = $"已识别的 {profile.Name} 自动化任务；根据本次新增日志判断完成并清理关联进程。"
+                Description = $"已适配的 {profile.Name} 自动化任务；监控指定任务进程，进程退出后清理并执行下一项。"
             };
-            task.ProcessRules.Add(new ProcessRule { ExecutableDirectory = task.WorkingDirectory, Monitor = true, Cleanup = true });
+            task.ProcessRules.Add(new ProcessRule { ProcessName = profile.CompletionProcessName, ExecutableDirectory = task.WorkingDirectory, Monitor = true, Cleanup = true, AllowNameFallback = true });
             results.Add(task);
         }
         return results;
@@ -51,6 +52,7 @@ public sealed class KnownToolProfileService
     {
         target.Name = profile.Name;
         target.ProgramPath = profile.ProgramPath;
+        target.WorkingDirectory = profile.WorkingDirectory;
         target.Arguments = profile.Arguments;
         target.CompletionMode = profile.CompletionMode;
         target.CompletionProcessName = profile.CompletionProcessName;
@@ -64,11 +66,18 @@ public sealed class KnownToolProfileService
         if (string.IsNullOrWhiteSpace(target.Description) || target.Description.StartsWith("自动化日常任务", StringComparison.Ordinal))
             target.Description = profile.Description;
 
-        var directoryRule = target.ProcessRules.FirstOrDefault(IsGeneratedDirectoryRule);
+        var directoryRule = target.ProcessRules.FirstOrDefault(rule => IsGeneratedDirectoryRule(rule) ||
+            string.Equals(Path.GetFileNameWithoutExtension(rule.ProcessName), Path.GetFileNameWithoutExtension(profile.CompletionProcessName), StringComparison.OrdinalIgnoreCase));
         if (directoryRule is null)
-            target.ProcessRules.Add(new ProcessRule { ExecutableDirectory = target.WorkingDirectory, Monitor = true, Cleanup = true });
+            target.ProcessRules.Add(new ProcessRule { ProcessName = profile.CompletionProcessName, ExecutableDirectory = target.WorkingDirectory, Monitor = true, Cleanup = true, AllowNameFallback = true });
         else
+        {
+            directoryRule.ProcessName = profile.CompletionProcessName;
             directoryRule.ExecutableDirectory = target.WorkingDirectory;
+            directoryRule.Monitor = true;
+            directoryRule.Cleanup = true;
+            directoryRule.AllowNameFallback = true;
+        }
     }
 
     private static bool IsGeneratedDirectoryRule(ProcessRule rule) =>
