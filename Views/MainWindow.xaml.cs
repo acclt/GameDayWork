@@ -1,4 +1,5 @@
 using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -14,6 +15,8 @@ public partial class MainWindow : Window
 {
     private readonly MainViewModel _viewModel = new();
     private Point _dragStart;
+    private bool _isClosing;
+    private bool _closeAfterSave;
     public MainWindow()
     {
         InitializeComponent(); DataContext = _viewModel;
@@ -25,7 +28,22 @@ public partial class MainWindow : Window
             _viewModel.NoticeRequested += ShowNotice;
             WirePlaceholderControls();
         };
-        Closing += (_, _) => { _viewModel.SaveAsync().GetAwaiter().GetResult(); _viewModel.Dispose(); };
+        Closing += MainWindow_Closing;
+    }
+    private async void MainWindow_Closing(object? sender, CancelEventArgs e)
+    {
+        if (_closeAfterSave) return;
+        e.Cancel = true;
+        if (_isClosing) return;
+        _isClosing = true;
+        try { await _viewModel.SaveAsync(); }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"关闭前保存配置失败：{ex}"); }
+        finally
+        {
+            _viewModel.Dispose();
+            _closeAfterSave = true;
+            Close();
+        }
     }
     private void Browse_Click(object sender, RoutedEventArgs e)
     {
