@@ -92,6 +92,40 @@ var processMonitor = new ProcessMonitorService();
 var emptySession = new RuntimeSession { RootPid = 0 };
 Assert(processMonitor.Scan(emptySession, valid).Count == 0, "未启动成功时不得把 PID 0 当作任务进程");
 
+var commandProcessor = Environment.GetEnvironmentVariable("ComSpec") ?? Path.Combine(Environment.SystemDirectory, "cmd.exe");
+if (File.Exists(commandProcessor))
+{
+    AutomationTaskConfig CreateShortProcessTask(string name) => new()
+    {
+        Name = name,
+        ProgramPath = commandProcessor,
+        Arguments = "/d /s /c \"ping.exe 127.0.0.1 -n 3 > nul\"",
+        WorkingDirectory = Environment.SystemDirectory,
+        CompletionMode = CompletionDetectionMode.SpecifiedProcessExit,
+        CompletionProcessName = "cmd.exe",
+        MaxRunMinutes = 1,
+        CleanupWaitSeconds = 1,
+        CleanupRetries = 1,
+        TrackChildren = true,
+        UseJobObject = false
+    };
+
+    var firstProcessTask = CreateShortProcessTask("进程退出测试一");
+    var secondProcessTask = CreateShortProcessTask("进程退出测试二");
+    var processEvents = new TaskEventBus();
+    var completionOrder = new List<string>();
+    processEvents.Subscribe<TaskCompletedEvent>(message => completionOrder.Add(message.Session.TaskName));
+    var processLog = new LoggingService();
+    var processRunner = new TaskRunnerService(processMonitor, new ProcessCleanupService(processMonitor, processLog), processLog, processEvents);
+    var processQueue = new TaskQueueService(processRunner, processLog, processEvents);
+    await processQueue.RunAsync([firstProcessTask, secondProcessTask], 0, FailurePolicy.ForceCleanupAndContinue);
+    Assert(processQueue.Status == QueueRunStatus.Completed, "指定进程退出后队列应正常完成");
+    Assert(firstProcessTask.Status == TaskRunStatus.Completed && secondProcessTask.Status == TaskRunStatus.Completed,
+        "指定进程退出后应自动执行并完成下一项");
+    Assert(completionOrder.SequenceEqual([firstProcessTask.Name, secondProcessTask.Name]),
+        "指定进程退出后的任务完成顺序应保持不变");
+}
+
 var visibilityConverter = new EnumEqualsToVisibilityConverter();
 Assert((Visibility)visibilityConverter.Convert(CompletionDetectionMode.LogKeyword, typeof(Visibility), "LogKeyword", CultureInfo.InvariantCulture) == Visibility.Visible, "匹配的完成检测方式应显示对应字段");
 Assert((Visibility)visibilityConverter.Convert(CompletionDetectionMode.MainProcessExit, typeof(Visibility), "LogKeyword", CultureInfo.InvariantCulture) == Visibility.Collapsed, "不匹配的完成检测方式应隐藏对应字段");
