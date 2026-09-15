@@ -41,3 +41,5 @@ dotnet publish .\GameOrchestrator.csproj -c Release -r win-x64 --self-contained 
 ```
 
 配置位于 `data/config.json`，日志位于 `logs/yyyy-MM-dd.log`。进程规则默认禁止按名称兜底，避免误杀同名进程。
+
+开发中已确认的问题见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md)。
