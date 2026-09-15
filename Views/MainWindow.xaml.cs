@@ -22,6 +22,7 @@ public partial class MainWindow : Window
             await _viewModel.InitializeAsync();
             _viewModel.Logs.CollectionChanged += LogsChanged;
             _viewModel.ValidationFailed += ShowValidationErrors;
+            _viewModel.NoticeRequested += ShowNotice;
             WirePlaceholderControls();
         };
         Closing += (_, _) => { _viewModel.SaveAsync().GetAwaiter().GetResult(); _viewModel.Dispose(); };
@@ -31,6 +32,11 @@ public partial class MainWindow : Window
         var dialog = new OpenFileDialog { Filter = "可执行文件 (*.exe)|*.exe|所有文件 (*.*)|*.*" };
         if (dialog.ShowDialog(this) == true && _viewModel.SelectedTask is { } task) task.ProgramPath = dialog.FileName;
     }
+    private void BrowseLog_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog { Filter = "日志文件 (*.log;*.txt)|*.log;*.txt|所有文件 (*.*)|*.*" };
+        if (dialog.ShowDialog(this) == true && _viewModel.SelectedTask is { } task) task.CompletionLogPath = dialog.FileName;
+    }
     private async void Schedule_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new ScheduleWindow(_viewModel.Schedule) { Owner = this };
@@ -39,6 +45,7 @@ public partial class MainWindow : Window
     private void Policy_Click(object sender, RoutedEventArgs e) => MessageBox.Show(this, "请在左下角“异常时”下拉框中选择执行策略。", "执行策略", MessageBoxButton.OK, MessageBoxImage.Information);
     private void ClearLogs_Click(object sender, RoutedEventArgs e) => _viewModel.Logs.Clear();
     private void ShowValidationErrors(string message) => MessageBox.Show(this, message, "无法开始执行", MessageBoxButton.OK, MessageBoxImage.Warning);
+    private void ShowNotice(string message) => MessageBox.Show(this, message, "本机工具识别", MessageBoxButton.OK, MessageBoxImage.Information);
     private void WirePlaceholderControls()
     {
         foreach (var button in FindVisualChildren<Button>(this))

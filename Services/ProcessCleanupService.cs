@@ -37,6 +37,14 @@ public sealed class ProcessCleanupService(ProcessMonitorService monitor, Logging
     private static bool ShouldCleanup(TrackedProcess process, AutomationTaskConfig task)
     {
         if (process.Source is TrackedProcessSource.Root or TrackedProcessSource.Child or TrackedProcessSource.JobObject) return true;
-        return task.ProcessRules.Any(r => r.Cleanup && ((!string.IsNullOrWhiteSpace(r.ExecutablePath) && string.Equals(r.ExecutablePath, process.ExecutablePath, StringComparison.OrdinalIgnoreCase)) || (r.AllowNameFallback && string.Equals(Path.GetFileNameWithoutExtension(r.ProcessName), process.ProcessName, StringComparison.OrdinalIgnoreCase))));
+        return task.ProcessRules.Any(r => r.Cleanup &&
+            ((!string.IsNullOrWhiteSpace(r.ExecutablePath) && string.Equals(Path.GetFullPath(r.ExecutablePath), process.ExecutablePath is null ? null : Path.GetFullPath(process.ExecutablePath), StringComparison.OrdinalIgnoreCase)) ||
+             (!string.IsNullOrWhiteSpace(r.ExecutableDirectory) && process.ExecutablePath is not null && IsUnderDirectory(process.ExecutablePath, r.ExecutableDirectory)) ||
+             (r.AllowNameFallback && string.Equals(Path.GetFileNameWithoutExtension(r.ProcessName), process.ProcessName, StringComparison.OrdinalIgnoreCase))));
+    }
+    private static bool IsUnderDirectory(string path, string directory)
+    {
+        var relative = Path.GetRelativePath(Path.GetFullPath(directory), Path.GetFullPath(path));
+        return !Path.IsPathRooted(relative) && relative != ".." && !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal);
     }
 }

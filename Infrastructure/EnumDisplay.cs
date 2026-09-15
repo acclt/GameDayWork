@@ -14,6 +14,7 @@ public sealed class EnumDisplayConverter : IValueConverter
         FailurePolicy.StopQueue => "停止整个队列",
         CompletionDetectionMode.MainProcessExit => "主程序退出（推荐）",
         CompletionDetectionMode.SpecifiedProcessExit => "指定进程退出",
+        CompletionDetectionMode.LogKeyword => "日志关键字",
         CompletionDetectionMode.Custom => "自定义检测（预留）",
         ScheduleRepeat.Daily => "每天",
         ScheduleRepeat.Weekdays => "工作日",

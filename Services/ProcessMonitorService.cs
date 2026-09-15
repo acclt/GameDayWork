@@ -8,6 +8,11 @@ public sealed class ProcessMonitorService
 {
     public IReadOnlyList<TrackedProcess> Scan(RuntimeSession session, AutomationTaskConfig task)
     {
+        if (session.RootPid <= 0)
+        {
+            session.TrackedProcesses.Clear();
+            return [];
+        }
         var parents = SnapshotParents();
         var descendants = task.TrackChildren ? DescendantsOf(session.RootPid, parents) : new HashSet<int>();
         var results = new Dictionary<int, TrackedProcess>();
@@ -19,8 +24,10 @@ public sealed class ProcessMonitorService
                 var path = TryPath(process);
                 var start = TryStart(process);
                 var parent = parents.TryGetValue(pid, out var ppid) ? ppid : (int?)null;
-                var source = pid == session.RootPid ? TrackedProcessSource.Root : descendants.Contains(pid) ? TrackedProcessSource.Child : TrackedProcessSource.RuleMatched;
-                var owned = pid == session.RootPid || descendants.Contains(pid) || MatchesSafeRule(process.ProcessName, path, start, session, task.ProcessRules);
+                var isRoot = IsRootProcess(pid, path, start, session);
+                var isChild = descendants.Contains(pid) && !session.BaselineProcessIds.Contains(pid) && StartedWithSession(start, session);
+                var source = isRoot ? TrackedProcessSource.Root : isChild ? TrackedProcessSource.Child : TrackedProcessSource.RuleMatched;
+                var owned = isRoot || isChild || MatchesSafeRule(pid, process.ProcessName, path, start, session, task.ProcessRules);
                 if (owned) results[pid] = new(pid, process.ProcessName, path, start, parent, source);
             }
             catch { }
@@ -30,14 +37,30 @@ public sealed class ProcessMonitorService
         return [.. results.Values];
     }
 
-    private static bool MatchesSafeRule(string processName, string? path, DateTimeOffset? start, RuntimeSession session, IEnumerable<ProcessRule> rules)
+    private static bool MatchesSafeRule(int pid, string processName, string? path, DateTimeOffset? start, RuntimeSession session, IEnumerable<ProcessRule> rules)
     {
+        if (session.BaselineProcessIds.Contains(pid) || !StartedWithSession(start, session)) return false;
         foreach (var rule in rules.Where(r => r.Monitor || r.Cleanup))
         {
-            if (!string.IsNullOrWhiteSpace(rule.ExecutablePath) && path is not null && string.Equals(Path.GetFullPath(path), Path.GetFullPath(rule.ExecutablePath), StringComparison.OrdinalIgnoreCase)) return start is null || start >= session.StartTime.AddSeconds(-2);
-            if (rule.AllowNameFallback && !string.IsNullOrWhiteSpace(rule.ProcessName) && string.Equals(Path.GetFileNameWithoutExtension(rule.ProcessName), processName, StringComparison.OrdinalIgnoreCase)) return start is null || start >= session.StartTime.AddSeconds(-2);
+            if (!string.IsNullOrWhiteSpace(rule.ExecutablePath) && path is not null && string.Equals(Path.GetFullPath(path), Path.GetFullPath(rule.ExecutablePath), StringComparison.OrdinalIgnoreCase)) return true;
+            if (!string.IsNullOrWhiteSpace(rule.ExecutableDirectory) && path is not null && IsUnderDirectory(path, rule.ExecutableDirectory)) return true;
+            if (rule.AllowNameFallback && !string.IsNullOrWhiteSpace(rule.ProcessName) && string.Equals(Path.GetFileNameWithoutExtension(rule.ProcessName), processName, StringComparison.OrdinalIgnoreCase)) return true;
         }
         return false;
+    }
+
+    private static bool IsRootProcess(int pid, string? path, DateTimeOffset? start, RuntimeSession session)
+    {
+        if (session.RootPid <= 0 || pid != session.RootPid) return false;
+        if (session.RootProcessStartTime is { } expectedStart && start is { } actualStart && Math.Abs((actualStart - expectedStart).TotalSeconds) > 1) return false;
+        return session.RootExecutablePath is null || path is null || string.Equals(Path.GetFullPath(path), session.RootExecutablePath, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool StartedWithSession(DateTimeOffset? start, RuntimeSession session) => start is null || start >= session.StartTime.AddSeconds(-2);
+    private static bool IsUnderDirectory(string path, string directory)
+    {
+        var relative = Path.GetRelativePath(Path.GetFullPath(directory), Path.GetFullPath(path));
+        return !Path.IsPathRooted(relative) && relative != ".." && !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal);
     }
 
     private static string? TryPath(Process p) { try { return p.MainModule?.FileName; } catch { return null; } }

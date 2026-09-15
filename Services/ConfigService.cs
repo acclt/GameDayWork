@@ -26,7 +26,7 @@ public sealed class ConfigService
     private static AppConfig CreateDefault()
     {
         var config = new AppConfig();
-        foreach (var name in new[] { "BGI", "MMA", "ZOG", "MAN", "M7A" })
+        foreach (var name in new[] { "BGI", "MAA", "ZOG", "MFA", "M7A" })
             config.Tasks.Add(new AutomationTaskConfig { Name = name });
         return config;
     }

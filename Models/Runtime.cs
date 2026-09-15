@@ -8,6 +8,9 @@ public sealed class RuntimeSession
     public DateTimeOffset StartTime { get; init; } = DateTimeOffset.Now;
     public DateTimeOffset? EndTime { get; set; }
     public int RootPid { get; set; }
+    public string? RootExecutablePath { get; set; }
+    public DateTimeOffset? RootProcessStartTime { get; set; }
+    public HashSet<int> BaselineProcessIds { get; } = [];
     public List<TrackedProcess> TrackedProcesses { get; } = [];
     public TaskRunStatus Status { get; set; }
     public string ExitReason { get; set; } = "";

@@ -13,10 +13,14 @@ public sealed class AutomationTaskConfig : ObservableObject
     private string _workingDirectory = "";
     private CompletionDetectionMode _completionMode = CompletionDetectionMode.MainProcessExit;
     private string _completionProcessName = "";
+    private string _completionLogPath = "";
+    private string _completionKeyword = "";
+    private string _completionFailureKeyword = "";
     private string _description = "自动化日常任务，完成后自动清理相关进程并执行下一项。";
     private int _maxRunMinutes = 60;
     private int _cleanupWaitSeconds = 3;
     private int _cleanupRetries = 3;
+    private bool _runAsAdministrator;
     private TaskRunStatus _status = TaskRunStatus.Idle;
 
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -28,10 +32,14 @@ public sealed class AutomationTaskConfig : ObservableObject
     public string WorkingDirectory { get => _workingDirectory; set => SetProperty(ref _workingDirectory, value); }
     public CompletionDetectionMode CompletionMode { get => _completionMode; set => SetProperty(ref _completionMode, value); }
     public string CompletionProcessName { get => _completionProcessName; set => SetProperty(ref _completionProcessName, value); }
+    public string CompletionLogPath { get => _completionLogPath; set => SetProperty(ref _completionLogPath, value); }
+    public string CompletionKeyword { get => _completionKeyword; set => SetProperty(ref _completionKeyword, value); }
+    public string CompletionFailureKeyword { get => _completionFailureKeyword; set => SetProperty(ref _completionFailureKeyword, value); }
     public string Description { get => _description; set => SetProperty(ref _description, value); }
     public int MaxRunMinutes { get => _maxRunMinutes; set => SetProperty(ref _maxRunMinutes, Math.Max(1, value)); }
     public int CleanupWaitSeconds { get => _cleanupWaitSeconds; set => SetProperty(ref _cleanupWaitSeconds, Math.Max(1, value)); }
     public int CleanupRetries { get => _cleanupRetries; set => SetProperty(ref _cleanupRetries, Math.Max(1, value)); }
+    public bool RunAsAdministrator { get => _runAsAdministrator; set => SetProperty(ref _runAsAdministrator, value); }
     public bool TrackChildren { get; set; } = true;
     public bool UseJobObject { get; set; } = true;
     public ObservableCollection<ProcessRule> ProcessRules { get; set; } = [];
@@ -50,11 +58,13 @@ public sealed class ProcessRule : ObservableObject
 {
     private string _processName = "";
     private string _executablePath = "";
+    private string _executableDirectory = "";
     private bool _monitor = true;
     private bool _cleanup = true;
     private bool _allowNameFallback;
     public string ProcessName { get => _processName; set => SetProperty(ref _processName, value); }
     public string ExecutablePath { get => _executablePath; set => SetProperty(ref _executablePath, value); }
+    public string ExecutableDirectory { get => _executableDirectory; set => SetProperty(ref _executableDirectory, value); }
     public bool Monitor { get => _monitor; set => SetProperty(ref _monitor, value); }
     public bool Cleanup { get => _cleanup; set => SetProperty(ref _cleanup, value); }
     public bool AllowNameFallback { get => _allowNameFallback; set => SetProperty(ref _allowNameFallback, value); }

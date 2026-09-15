@@ -16,6 +16,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly LoggingService _log = new();
     private readonly SchedulerService _scheduler = new();
     private readonly TaskValidationService _validator = new();
+    private readonly KnownToolProfileService _toolProfiles = new();
     private readonly TaskQueueService _queue;
     private AppConfig _config = new();
     private AutomationTaskConfig? _selectedTask;
@@ -55,7 +56,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ICommand MoveDownCommand { get; }
     public ICommand OpenLogsCommand { get; }
     public ICommand ResetTaskCommand { get; }
+    public ICommand ImportToolsCommand { get; }
     public event Action<string>? ValidationFailed;
+    public event Action<string>? NoticeRequested;
 
     public MainViewModel()
     {
@@ -79,6 +82,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         MoveDownCommand = new RelayCommand(() => MoveSelected(1));
         OpenLogsCommand = new RelayCommand(OpenLogs);
         ResetTaskCommand = new AsyncRelayCommand(ResetSelectedTaskAsync, () => SelectedTask is not null && !_queue.IsRunning);
+        ImportToolsCommand = new RelayCommand(ImportKnownTools, () => !_queue.IsRunning);
         _uiTimer = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Background, (_, _) => TickUi(), Application.Current.Dispatcher);
     }
 
@@ -136,8 +140,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void DuplicateTask()
     {
         if (SelectedTask is null) return;
-        var copy = new AutomationTaskConfig { Name = SelectedTask.Name + " 副本", ProgramPath = SelectedTask.ProgramPath, Arguments = SelectedTask.Arguments, WorkingDirectory = SelectedTask.WorkingDirectory, CompletionMode = SelectedTask.CompletionMode, CompletionProcessName = SelectedTask.CompletionProcessName, MaxRunMinutes = SelectedTask.MaxRunMinutes, CleanupWaitSeconds = SelectedTask.CleanupWaitSeconds, CleanupRetries = SelectedTask.CleanupRetries, TrackChildren = SelectedTask.TrackChildren, UseJobObject = SelectedTask.UseJobObject };
-        foreach (var rule in SelectedTask.ProcessRules) copy.ProcessRules.Add(new ProcessRule { ProcessName = rule.ProcessName, ExecutablePath = rule.ExecutablePath, Monitor = rule.Monitor, Cleanup = rule.Cleanup, AllowNameFallback = rule.AllowNameFallback });
+        var copy = new AutomationTaskConfig { Name = SelectedTask.Name + " 副本", ProgramPath = SelectedTask.ProgramPath, Arguments = SelectedTask.Arguments, WorkingDirectory = SelectedTask.WorkingDirectory, CompletionMode = SelectedTask.CompletionMode, CompletionProcessName = SelectedTask.CompletionProcessName, CompletionLogPath = SelectedTask.CompletionLogPath, CompletionKeyword = SelectedTask.CompletionKeyword, CompletionFailureKeyword = SelectedTask.CompletionFailureKeyword, MaxRunMinutes = SelectedTask.MaxRunMinutes, CleanupWaitSeconds = SelectedTask.CleanupWaitSeconds, CleanupRetries = SelectedTask.CleanupRetries, TrackChildren = SelectedTask.TrackChildren, UseJobObject = SelectedTask.UseJobObject, RunAsAdministrator = SelectedTask.RunAsAdministrator };
+        foreach (var rule in SelectedTask.ProcessRules) copy.ProcessRules.Add(new ProcessRule { ProcessName = rule.ProcessName, ExecutablePath = rule.ExecutablePath, ExecutableDirectory = rule.ExecutableDirectory, Monitor = rule.Monitor, Cleanup = rule.Cleanup, AllowNameFallback = rule.AllowNameFallback });
         Tasks.Insert(Tasks.IndexOf(SelectedTask) + 1, copy); SelectedTask = copy;
     }
     private void MoveSelected(int offset) { if (SelectedTask is null) return; var from = Tasks.IndexOf(SelectedTask); var to = from + offset; if (to >= 0 && to < Tasks.Count) Tasks.Move(from, to); }
@@ -150,6 +154,26 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Tasks[index] = saved; SelectedTask = saved;
         await _log.WriteAsync(LogLevel.Info, $"已重置任务配置：{saved.Name}");
     }
+    private void ImportKnownTools()
+    {
+        var discovered = _toolProfiles.Discover();
+        var imported = 0;
+        foreach (var profile in discovered)
+        {
+            var aliases = profile.Name switch { "MAA" => new[] { "MAA", "MMA" }, "MFA" => new[] { "MFA", "MAN" }, _ => new[] { profile.Name } };
+            var existing = Tasks.FirstOrDefault(task => aliases.Contains(task.Name, StringComparer.OrdinalIgnoreCase));
+            if (existing is not null && !string.IsNullOrWhiteSpace(existing.ProgramPath)) continue;
+            if (existing is not null)
+            {
+                var index = Tasks.IndexOf(existing);
+                Tasks[index] = profile;
+                if (SelectedTask == existing) SelectedTask = profile;
+            }
+            else Tasks.Add(profile);
+            imported++;
+        }
+        NoticeRequested?.Invoke(imported > 0 ? $"已识别并填入 {imported} 个工具配置。请确认后保存。" : "未发现新的工具，已有配置不会被覆盖。");
+    }
     private void RaiseCommandStates()
     {
         ((AsyncRelayCommand)StartCommand).RaiseCanExecuteChanged();
@@ -158,6 +182,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         ((RelayCommand)DeleteTaskCommand).RaiseCanExecuteChanged();
         ((RelayCommand)DuplicateTaskCommand).RaiseCanExecuteChanged();
         ((AsyncRelayCommand)ResetTaskCommand).RaiseCanExecuteChanged();
+        ((RelayCommand)ImportToolsCommand).RaiseCanExecuteChanged();
     }
     private void TickUi()
     {
