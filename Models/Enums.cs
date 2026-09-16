@@ -8,3 +8,4 @@ public enum FailurePolicy { ForceCleanupAndContinue, RetryCurrentTask, SkipCurre
 public enum TrackedProcessSource { Root, Child, JobObject, RuleMatched, Manual }
 public enum LogLevel { Info, Success, Warning, Error }
 public enum ScheduleRepeat { Daily, Weekdays, SelectedDays }
+public enum TaskCompletionAction { RunNext, None }

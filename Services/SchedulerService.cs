@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Windows.Threading;
 using GameOrchestrator.Models;
 
@@ -6,9 +7,9 @@ namespace GameOrchestrator.Services;
 public sealed class SchedulerService : IDisposable
 {
     private readonly DispatcherTimer _timer;
-    private DateTime? _lastRunDate;
-    private Func<Task>? _callback;
-    private ScheduleConfig? _config;
+    private readonly HashSet<string> _executedSlots = [];
+    private Func<IReadOnlyList<AutomationTaskConfig>>? _tasksProvider;
+    private Func<IReadOnlyList<AutomationTaskConfig>, Task>? _callback;
     private bool _tickRunning;
 
     public event Action<Exception>? Error;
@@ -22,9 +23,9 @@ public sealed class SchedulerService : IDisposable
         _timer.Tick += Timer_Tick;
     }
 
-    public void Start(ScheduleConfig config, Func<Task> callback)
+    public void Start(Func<IReadOnlyList<AutomationTaskConfig>> tasksProvider, Func<IReadOnlyList<AutomationTaskConfig>, Task> callback)
     {
-        _config = config;
+        _tasksProvider = tasksProvider;
         _callback = callback;
         _timer.Start();
         _ = TickSafelyAsync();
@@ -34,16 +35,31 @@ public sealed class SchedulerService : IDisposable
     {
         get
         {
-            if (_config?.Enabled != true || !IsValidTime(_config.Time)) return null;
+            if (_tasksProvider is null) return null;
             var now = DateTime.Now;
-            for (var offset = 0; offset < 8; offset++)
-            {
-                var day = now.Date.AddDays(offset);
-                var candidate = day + _config.Time;
-                if (candidate > now && IsAllowed(day.DayOfWeek)) return candidate;
-            }
-            return null;
+            return _tasksProvider()
+                .Where(task => task.Enabled && TryParseTime(task.ScheduledStartTime, out _))
+                .SelectMany(task => NextCandidates(now, task))
+                .Where(candidate => candidate > now)
+                .OrderBy(candidate => candidate)
+                .Select(candidate => (DateTime?)candidate)
+                .FirstOrDefault();
         }
+    }
+
+    public static bool TryParseTime(string? value, out TimeSpan time)
+    {
+        var formats = new[] { @"h\:mm", @"hh\:mm", @"h\:mm\:ss", @"hh\:mm\:ss" };
+        return TimeSpan.TryParseExact(value?.Trim(), formats, CultureInfo.InvariantCulture, out time)
+            && time >= TimeSpan.Zero
+            && time < TimeSpan.FromDays(1);
+    }
+
+    private static IEnumerable<DateTime> NextCandidates(DateTime now, AutomationTaskConfig task)
+    {
+        if (!TryParseTime(task.ScheduledStartTime, out var time)) yield break;
+        yield return now.Date + time;
+        yield return now.Date.AddDays(1) + time;
     }
 
     private async void Timer_Tick(object? sender, EventArgs e) => await TickSafelyAsync();
@@ -54,7 +70,8 @@ public sealed class SchedulerService : IDisposable
         _tickRunning = true;
         try
         {
-            await TickAsync();
+            Tick();
+            await Task.CompletedTask;
         }
         catch (Exception ex)
         {
@@ -66,24 +83,30 @@ public sealed class SchedulerService : IDisposable
         }
     }
 
-    private async Task TickAsync()
+    private void Tick()
     {
-        if (_config?.Enabled != true || _callback is null || !IsValidTime(_config.Time) || !IsAllowed(DateTime.Today.DayOfWeek)) return;
+        if (_tasksProvider is null || _callback is null) return;
         var now = DateTime.Now;
-        var delay = now.TimeOfDay - _config.Time;
-        if (delay < TimeSpan.Zero || delay >= TimeSpan.FromSeconds(40) || _lastRunDate == now.Date) return;
-        _lastRunDate = now.Date;
-        await _callback();
+        var due = new List<AutomationTaskConfig>();
+        foreach (var task in _tasksProvider().Where(task => task.Enabled))
+        {
+            if (!TryParseTime(task.ScheduledStartTime, out var time)) continue;
+            var delay = now.TimeOfDay - time;
+            var slot = $"{task.Id:N}:{now:yyyyMMdd}:{time.Ticks}";
+            if (delay < TimeSpan.Zero || delay >= TimeSpan.FromSeconds(40) || _executedSlots.Contains(slot)) continue;
+            _executedSlots.Add(slot);
+            due.Add(task);
+        }
+
+        _executedSlots.RemoveWhere(slot => !slot.Contains(now.ToString("yyyyMMdd", CultureInfo.InvariantCulture), StringComparison.Ordinal));
+        if (due.Count > 0) _ = InvokeCallbackSafelyAsync(due);
     }
 
-    private static bool IsValidTime(TimeSpan time) => time >= TimeSpan.Zero && time < TimeSpan.FromDays(1);
-
-    private bool IsAllowed(DayOfWeek day) => _config!.Repeat switch
+    private async Task InvokeCallbackSafelyAsync(IReadOnlyList<AutomationTaskConfig> tasks)
     {
-        ScheduleRepeat.Daily => true,
-        ScheduleRepeat.Weekdays => day is >= DayOfWeek.Monday and <= DayOfWeek.Friday,
-        _ => _config.SelectedDays.Contains(day)
-    };
+        try { await _callback!(tasks); }
+        catch (Exception ex) { Error?.Invoke(ex); }
+    }
 
     public void Dispose()
     {

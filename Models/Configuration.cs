@@ -21,6 +21,8 @@ public sealed class AutomationTaskConfig : ObservableObject
     private int _cleanupWaitSeconds = 3;
     private int _cleanupRetries = 3;
     private bool _runAsAdministrator;
+    private string _scheduledStartTime = "";
+    private TaskCompletionAction _completionAction = TaskCompletionAction.RunNext;
     private TaskRunStatus _status = TaskRunStatus.Idle;
     private int _displayIndex;
 
@@ -42,6 +44,8 @@ public sealed class AutomationTaskConfig : ObservableObject
     public int CleanupWaitSeconds { get => _cleanupWaitSeconds; set => SetProperty(ref _cleanupWaitSeconds, Math.Max(1, value)); }
     public int CleanupRetries { get => _cleanupRetries; set => SetProperty(ref _cleanupRetries, Math.Max(1, value)); }
     public bool RunAsAdministrator { get => _runAsAdministrator; set => SetProperty(ref _runAsAdministrator, value); }
+    public string ScheduledStartTime { get => _scheduledStartTime; set => SetProperty(ref _scheduledStartTime, value?.Trim() ?? ""); }
+    public TaskCompletionAction CompletionAction { get => _completionAction; set => SetProperty(ref _completionAction, value); }
     public bool TrackChildren { get; set; } = true;
     public bool UseJobObject { get; set; } = true;
     public ObservableCollection<ProcessRule> ProcessRules { get; set; } = [];

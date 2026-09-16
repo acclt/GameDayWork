@@ -55,11 +55,6 @@ public partial class MainWindow : Window
         var dialog = new OpenFileDialog { Filter = "日志文件 (*.log;*.txt)|*.log;*.txt|所有文件 (*.*)|*.*" };
         if (dialog.ShowDialog(this) == true && _viewModel.SelectedTask is { } task) task.CompletionLogPath = dialog.FileName;
     }
-    private async void Schedule_Click(object sender, RoutedEventArgs e)
-    {
-        var dialog = new ScheduleWindow(_viewModel.Schedule) { Owner = this };
-        if (dialog.ShowDialog() == true) await _viewModel.ApplyScheduleAsync();
-    }
     private void ClearLogs_Click(object sender, RoutedEventArgs e) => _viewModel.Logs.Clear();
     private void ShowValidationErrors(string message) => MessageBox.Show(this, message, "无法开始执行", MessageBoxButton.OK, MessageBoxImage.Warning);
     private void ShowNotice(string message) => MessageBox.Show(this, message, "本机工具识别", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -133,11 +128,9 @@ public partial class MainWindow : Window
         var profiles = _viewModel.DiscoverKnownTools();
         foreach (var profile in profiles)
         {
-            var alreadyAdded = _viewModel.ContainsKnownTool(profile.Name);
             var item = new MenuItem
             {
-                Header = alreadyAdded ? $"{profile.Name}（已添加）" : profile.Name,
-                IsEnabled = !alreadyAdded,
+                Header = profile.Name,
                 Tag = profile
             };
             item.Click += AddKnownTool_Click;
@@ -151,6 +144,10 @@ public partial class MainWindow : Window
     {
         if ((sender as MenuItem)?.Tag is AutomationTaskConfig profile)
             await _viewModel.AddKnownToolAsync(profile);
+    }
+    private void TaskList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (TaskSettingsTabs is not null) TaskSettingsTabs.SelectedIndex = 0;
     }
     private void TaskList_MouseDown(object sender, MouseButtonEventArgs e) => _dragStart = e.GetPosition(TaskList);
     private void TaskList_MouseMove(object sender, MouseEventArgs e)

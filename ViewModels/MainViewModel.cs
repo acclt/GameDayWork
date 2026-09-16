@@ -58,9 +58,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             OnPropertyChanged();
         }
     }
-    public ScheduleConfig Schedule => _config.Schedule;
     public Array FailurePolicies => Enum.GetValues(typeof(FailurePolicy));
     public Array CompletionModes => Enum.GetValues(typeof(CompletionDetectionMode));
+    public Array CompletionActions => Enum.GetValues(typeof(TaskCompletionAction));
     public bool HasActiveTask => CurrentSession?.Status is TaskRunStatus.Starting or TaskRunStatus.Running or TaskRunStatus.CompletionDetected or TaskRunStatus.Cleaning or TaskRunStatus.CleanupVerifying;
     public string CurrentTaskName => HasActiveTask ? CurrentSession!.TaskName : "—";
     public string CurrentStage => HasActiveTask ? CurrentSession!.Status.ToString().ToUpperInvariant() : "IDLE";
@@ -126,14 +126,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _log.FileLoggingEnabled = _config.GenerateExecutionLog;
         Tasks.CollectionChanged += (_, _) => RefreshTaskIndexes();
         RefreshTaskIndexes();
-        OnPropertyChanged(nameof(Tasks)); OnPropertyChanged(nameof(TaskIntervalSeconds)); OnPropertyChanged(nameof(FailurePolicy)); OnPropertyChanged(nameof(Schedule)); OnPropertyChanged(nameof(ShowCompletionNotification)); OnPropertyChanged(nameof(GenerateExecutionLog));
+        OnPropertyChanged(nameof(Tasks)); OnPropertyChanged(nameof(TaskIntervalSeconds)); OnPropertyChanged(nameof(FailurePolicy)); OnPropertyChanged(nameof(ShowCompletionNotification)); OnPropertyChanged(nameof(GenerateExecutionLog));
         SelectedTask = Tasks.FirstOrDefault();
-        _scheduler.Start(_config.Schedule, RunFullQueueAsync);
+        _scheduler.Start(() => Tasks.ToList(), RunScheduledTasksAsync);
         OnPropertyChanged(nameof(NextRunText));
         await _log.WriteAsync(LogLevel.Info, $"程序启动，已加载任务队列（{Tasks.Count} 项）");
     }
     public Task SaveAsync() => _configService.SaveAsync(_config);
-    public async Task ApplyScheduleAsync() { await SaveAsync(); OnPropertyChanged(nameof(NextRunText)); }
     public void Reorder(AutomationTaskConfig source, AutomationTaskConfig target)
     {
         if (_queue.IsRunning || source == target) return;
@@ -155,6 +154,34 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         await _queue.RunSingleAsync(SelectedTask, FailurePolicy);
         RaiseCommandStates();
     }
+    private async Task RunScheduledTasksAsync(IReadOnlyList<AutomationTaskConfig> anchors)
+    {
+        if (_queue.IsRunning)
+        {
+            await _log.WriteAsync(LogLevel.Warning, $"定时任务到点但已有任务运行，已跳过：{string.Join("、", anchors.Select(task => task.Name))}");
+            return;
+        }
+
+        var scheduled = new List<AutomationTaskConfig>();
+        foreach (var anchor in anchors.OrderBy(task => Tasks.IndexOf(task)))
+        {
+            if (scheduled.Contains(anchor)) continue;
+            var index = Tasks.IndexOf(anchor);
+            while (index >= 0 && index < Tasks.Count)
+            {
+                var task = Tasks[index];
+                if (task.Enabled && !scheduled.Contains(task)) scheduled.Add(task);
+                if (task.CompletionAction == TaskCompletionAction.None) break;
+                index++;
+                while (index < Tasks.Count && !Tasks[index].Enabled) index++;
+            }
+        }
+
+        if (!await ValidateBeforeRunAsync(scheduled)) return;
+        await _log.WriteAsync(LogLevel.Info, $"定时启动：{string.Join(" → ", scheduled.Select(task => task.Name))}");
+        await _queue.RunAsync(scheduled, TaskIntervalSeconds, FailurePolicy);
+        RaiseCommandStates();
+    }
     private async Task<bool> ValidateBeforeRunAsync(IReadOnlyList<AutomationTaskConfig> tasks)
     {
         if (tasks.Count == 0) { ValidationFailed?.Invoke("没有已启用的任务可执行。"); return false; }
@@ -174,7 +201,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void DuplicateTask()
     {
         if (SelectedTask is null) return;
-        var copy = new AutomationTaskConfig { Name = SelectedTask.Name + " 副本", ProgramPath = SelectedTask.ProgramPath, Arguments = SelectedTask.Arguments, WorkingDirectory = SelectedTask.WorkingDirectory, CompletionMode = SelectedTask.CompletionMode, CompletionProcessName = SelectedTask.CompletionProcessName, CompletionLogPath = SelectedTask.CompletionLogPath, CompletionKeyword = SelectedTask.CompletionKeyword, CompletionFailureKeyword = SelectedTask.CompletionFailureKeyword, MaxRunMinutes = SelectedTask.MaxRunMinutes, CleanupWaitSeconds = SelectedTask.CleanupWaitSeconds, CleanupRetries = SelectedTask.CleanupRetries, TrackChildren = SelectedTask.TrackChildren, UseJobObject = SelectedTask.UseJobObject, RunAsAdministrator = SelectedTask.RunAsAdministrator };
+        var copy = new AutomationTaskConfig { Name = SelectedTask.Name + " 副本", ProgramPath = SelectedTask.ProgramPath, Arguments = SelectedTask.Arguments, WorkingDirectory = SelectedTask.WorkingDirectory, CompletionMode = SelectedTask.CompletionMode, CompletionProcessName = SelectedTask.CompletionProcessName, CompletionLogPath = SelectedTask.CompletionLogPath, CompletionKeyword = SelectedTask.CompletionKeyword, CompletionFailureKeyword = SelectedTask.CompletionFailureKeyword, MaxRunMinutes = SelectedTask.MaxRunMinutes, CleanupWaitSeconds = SelectedTask.CleanupWaitSeconds, CleanupRetries = SelectedTask.CleanupRetries, TrackChildren = SelectedTask.TrackChildren, UseJobObject = SelectedTask.UseJobObject, RunAsAdministrator = SelectedTask.RunAsAdministrator, ScheduledStartTime = SelectedTask.ScheduledStartTime, CompletionAction = SelectedTask.CompletionAction };
         foreach (var rule in SelectedTask.ProcessRules) copy.ProcessRules.Add(new ProcessRule { ProcessName = rule.ProcessName, ExecutablePath = rule.ExecutablePath, ExecutableDirectory = rule.ExecutableDirectory, Monitor = rule.Monitor, Cleanup = rule.Cleanup, AllowNameFallback = rule.AllowNameFallback });
         Tasks.Insert(Tasks.IndexOf(SelectedTask) + 1, copy); SelectedTask = copy;
     }
@@ -218,22 +245,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             : "未发现 BGI、MAA、ZOG、MFA 或 M7A。");
     }
     public IReadOnlyList<AutomationTaskConfig> DiscoverKnownTools() => _toolProfiles.Discover();
-    public bool ContainsKnownTool(string name) => Tasks.Any(task => NormalizeKnownToolName(task.Name) == NormalizeKnownToolName(name));
     public async Task<bool> AddKnownToolAsync(AutomationTaskConfig profile)
     {
-        if (_queue.IsRunning || ContainsKnownTool(profile.Name)) return false;
+        if (_queue.IsRunning) return false;
         Tasks.Add(profile);
         SelectedTask = profile;
         await SaveAsync();
         await _log.WriteAsync(LogLevel.Success, $"已添加适配任务：{profile.Name}");
         return true;
     }
-    private static string NormalizeKnownToolName(string name) => name.ToUpperInvariant() switch
-    {
-        "MMA" => "MAA",
-        "MAN" => "MFA",
-        _ => name.ToUpperInvariant()
-    };
     private void RefreshTaskIndexes()
     {
         for (var index = 0; index < Tasks.Count; index++) Tasks[index].DisplayIndex = index + 1;

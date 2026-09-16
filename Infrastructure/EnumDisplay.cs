@@ -19,6 +19,8 @@ public sealed class EnumDisplayConverter : IValueConverter
         ScheduleRepeat.Daily => "每天",
         ScheduleRepeat.Weekdays => "工作日",
         ScheduleRepeat.SelectedDays => "指定星期",
+        TaskCompletionAction.RunNext => "立即运行下一项",
+        TaskCompletionAction.None => "无操作",
         _ => value?.ToString() ?? ""
     };
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => Binding.DoNothing;

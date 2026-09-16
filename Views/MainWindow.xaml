@@ -116,19 +116,17 @@
                   <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Style="{StaticResource Title}" VerticalAlignment="Center">
-                  <Run Text="任务队列（" />
+                  <Run Text="日常（" />
                   <Run Text="{Binding Tasks.Count, Mode=OneWay}" />
                   <Run Text="）" />
                 </TextBlock>
                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                   <Button Content="＋ 添加" Click="AddTask_Click" />
-                  <Button Content="应用五项目适配" Command="{Binding ImportToolsCommand}" Margin="6,0,0,0" ToolTip="识别并更新 BGI、MAA、ZOG、MFA、M7A 的推荐运行配置" />
-                  <Button Content="定时计划" Click="Schedule_Click" Margin="6,0,0,0" />
+                  <Button Content="删除" Command="{Binding DeleteTaskCommand}" Margin="6,0,0,0" />
                   <Button Content="↕" Style="{StaticResource IconButton}" Background="Transparent" BorderThickness="0" Command="{Binding MoveUpCommand}" />
-                  <Button Content="☰" Style="{StaticResource IconButton}" Background="Transparent" BorderThickness="0" />
                 </StackPanel>
               </Grid>
-              <ListBox x:Name="TaskList" ItemsSource="{Binding Tasks}" SelectedItem="{Binding SelectedTask}" BorderThickness="0" Background="Transparent" Padding="10,0" AllowDrop="True" PreviewMouseLeftButtonDown="TaskList_MouseDown" PreviewMouseMove="TaskList_MouseMove" Drop="TaskList_Drop">
+              <ListBox x:Name="TaskList" ItemsSource="{Binding Tasks}" SelectedItem="{Binding SelectedTask}" BorderThickness="0" Background="Transparent" Padding="10,0" AllowDrop="True" SelectionChanged="TaskList_SelectionChanged" PreviewMouseLeftButtonDown="TaskList_MouseDown" PreviewMouseMove="TaskList_MouseMove" Drop="TaskList_Drop">
                 <ListBox.ItemContainerStyle>
                   <Style TargetType="ListBoxItem">
                     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -195,7 +193,7 @@
               </TextBlock>
               <Button Grid.Column="1" Content="▣  复制配置" Command="{Binding DuplicateTaskCommand}" />
             </Grid>
-            <TabControl Background="Transparent" BorderThickness="0">
+            <TabControl x:Name="TaskSettingsTabs" Background="Transparent" BorderThickness="0">
               <TabItem Header="基本设置">
                 <ScrollViewer>
                   <StackPanel Margin="4,12">
@@ -280,6 +278,16 @@
                         <ColumnDefinition Width="110" />
                         <ColumnDefinition />
                       </Grid.ColumnDefinitions>
+                      <TextBlock Text="定时启动" Style="{StaticResource Label}" />
+                      <TextBox Grid.Column="1" Text="{Binding SelectedTask.ScheduledStartTime,UpdateSourceTrigger=PropertyChanged}" ToolTip="每天定时启动，格式为 HH:mm；留空表示不单独定时" />
+                      <TextBlock Grid.Column="2" Text="HH:mm，留空不定时" Foreground="#6E7F99" VerticalAlignment="Center" Margin="12,0" />
+                    </Grid>
+                    <Grid Margin="4,0,0,8">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="125" />
+                        <ColumnDefinition Width="110" />
+                        <ColumnDefinition />
+                      </Grid.ColumnDefinitions>
                       <TextBlock Text="最大运行时间" Style="{StaticResource Label}" />
                       <TextBox Grid.Column="1" Text="{Binding SelectedTask.MaxRunMinutes}" />
                       <TextBlock Grid.Column="2" Text="分钟   ?" VerticalAlignment="Center" Margin="12,0" />
@@ -290,9 +298,7 @@
                         <ColumnDefinition />
                       </Grid.ColumnDefinitions>
                       <TextBlock Text="完成后操作" Style="{StaticResource Label}" />
-                      <ComboBox Grid.Column="1">
-                        <ComboBoxItem Content="立即运行下一项（推荐）" IsSelected="True" />
-                      </ComboBox>
+                      <ComboBox Grid.Column="1" ItemsSource="{Binding CompletionActions}" SelectedItem="{Binding SelectedTask.CompletionAction}" ToolTip="定时任务完成后是否继续执行日常列表中的下一项" />
                     </Grid>
                     <Border Style="{StaticResource Group}">
                       <TextBlock Text="任务说明" FontWeight="SemiBold" />
