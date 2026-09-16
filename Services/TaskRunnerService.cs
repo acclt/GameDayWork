@@ -44,7 +44,7 @@ public sealed class TaskRunnerService(ProcessMonitorService monitor, ProcessClea
             {
                 try
                 {
-                    job = new JobObjectService($"GameOrchestrator-{session.SessionId:N}");
+                    job = new JobObjectService($"GameDayWork-{session.SessionId:N}");
                     if (!job.TryAssign(root)) await log.WriteAsync(LogLevel.Warning, "无法将主进程加入 Job Object，将继续使用进程树和安全规则监控");
                 }
                 catch (Exception ex) { await log.WriteAsync(LogLevel.Warning, $"Job Object 不可用：{ex.Message}"); }

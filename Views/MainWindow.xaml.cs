@@ -110,7 +110,7 @@ public partial class MainWindow : Window
     }
     private void ExportLogs_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new SaveFileDialog { Filter = "文本日志 (*.txt)|*.txt", FileName = $"GameOrchestrator-{DateTime.Now:yyyyMMdd-HHmmss}.txt" };
+        var dialog = new SaveFileDialog { Filter = "文本日志 (*.txt)|*.txt", FileName = $"GameDayWork-{DateTime.Now:yyyyMMdd-HHmmss}.txt" };
         if (dialog.ShowDialog(this) == true) File.WriteAllLines(dialog.FileName, _viewModel.Logs.Select(x => $"{x.Time:O} [{x.LevelText}] {x.Message}"));
     }
     private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)

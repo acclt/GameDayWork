@@ -5,5 +5,5 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
-  <ItemGroup><ProjectReference Include="..\..\GameOrchestrator.csproj" /></ItemGroup>
+  <ItemGroup><ProjectReference Include="..\..\GameDayWork.csproj" /></ItemGroup>
 </Project>

@@ -1,4 +1,4 @@
-# 游戏自动化任务调度器
+# GameDayWork
 
 这是一个 Windows 事件驱动串行任务编排器。任务满足完成条件后，调度器先扫描、清理并验证关联进程全部退出，再等待短暂间隔并启动下一项。最大运行时间仅用于异常卡死保护。
 
@@ -26,8 +26,8 @@
 需要 .NET 8 SDK（只有 Runtime 无法构建）：
 
 ```powershell
-dotnet build .\GameOrchestrator.csproj
-dotnet run --project .\GameOrchestrator.csproj
+dotnet build .\GameDayWork.csproj
+dotnet run --project .\GameDayWork.csproj
 ```
 
 运行无需第三方框架的冒烟测试：
@@ -39,7 +39,7 @@ dotnet run --project .\tests\GameOrchestrator.SmokeTests\GameOrchestrator.SmokeT
 发布 Windows EXE：
 
 ```powershell
-dotnet publish .\GameOrchestrator.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+dotnet publish .\GameDayWork.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
 ```
 
 配置位于 `data/config.json`，日志位于 `logs/yyyy-MM-dd.log`。进程规则默认禁止按名称兜底，避免误杀同名进程。
