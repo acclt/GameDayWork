@@ -63,8 +63,7 @@ public partial class MainWindow : Window
         foreach (var button in FindVisualChildren<Button>(this))
         {
             var text = button.Content?.ToString();
-            if (text?.Contains("运行一次") == true) button.Command = _viewModel.RunOnceCommand;
-            else if (text == "重置") button.Command = _viewModel.ResetTaskCommand;
+            if (text == "重置") button.Command = _viewModel.ResetTaskCommand;
         }
         foreach (var combo in FindVisualChildren<ComboBox>(this))
         {

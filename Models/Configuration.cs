@@ -44,13 +44,32 @@ public sealed class AutomationTaskConfig : ObservableObject
     public int CleanupWaitSeconds { get => _cleanupWaitSeconds; set => SetProperty(ref _cleanupWaitSeconds, Math.Max(1, value)); }
     public int CleanupRetries { get => _cleanupRetries; set => SetProperty(ref _cleanupRetries, Math.Max(1, value)); }
     public bool RunAsAdministrator { get => _runAsAdministrator; set => SetProperty(ref _runAsAdministrator, value); }
-    public string ScheduledStartTime { get => _scheduledStartTime; set => SetProperty(ref _scheduledStartTime, value?.Trim() ?? ""); }
+    public string ScheduledStartTime
+    {
+        get => _scheduledStartTime;
+        set
+        {
+            if (SetProperty(ref _scheduledStartTime, value?.Trim() ?? "")) OnPropertyChanged(nameof(NextExecutionText));
+        }
+    }
     public TaskCompletionAction CompletionAction { get => _completionAction; set => SetProperty(ref _completionAction, value); }
     public bool TrackChildren { get; set; } = true;
     public bool UseJobObject { get; set; } = true;
     public ObservableCollection<ProcessRule> ProcessRules { get; set; } = [];
     [JsonIgnore] public TaskRunStatus Status { get => _status; set { if (SetProperty(ref _status, value)) { OnPropertyChanged(nameof(StatusText)); OnPropertyChanged(nameof(IsActive)); } } }
     [JsonIgnore] public bool IsActive => Status is TaskRunStatus.Starting or TaskRunStatus.Running or TaskRunStatus.CompletionDetected or TaskRunStatus.Cleaning or TaskRunStatus.CleanupVerifying;
+    [JsonIgnore] public string NextExecutionText
+    {
+        get
+        {
+            if (!TimeSpan.TryParse(ScheduledStartTime, out var time) || time < TimeSpan.Zero || time >= TimeSpan.FromDays(1)) return "未定时";
+            var now = DateTime.Now;
+            var next = now.Date + time;
+            if (next <= now) next = next.AddDays(1);
+            return next.Date == now.Date ? $"今天 {next:HH:mm}" : $"明天 {next:HH:mm}";
+        }
+    }
+    internal void RefreshNextExecutionText() => OnPropertyChanged(nameof(NextExecutionText));
     [JsonIgnore] public string StatusText => Status switch
     {
         TaskRunStatus.Idle => "等待执行", TaskRunStatus.Waiting => "等待执行", TaskRunStatus.Starting => "正在启动",

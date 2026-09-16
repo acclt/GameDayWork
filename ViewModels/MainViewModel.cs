@@ -74,13 +74,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         TaskRunStatus.CompletionDetected => "已检测完成，准备清理",
         TaskRunStatus.Cleaning => "正在清理关联进程",
         TaskRunStatus.CleanupVerifying => "正在确认清理结果",
-        _ => "点击「开始执行」或等待定时任务"
+        _ => "选择左侧任务后点击「开始」，或等待定时任务"
     };
-    public string RecentEvent => Logs.LastOrDefault()?.Message ?? "点击“开始执行”或等待定时任务";
+    public string RecentEvent => Logs.LastOrDefault()?.Message ?? "选择左侧任务后点击“开始”，或等待定时任务";
 
-    public ICommand StartCommand { get; }
-    public ICommand RunOnceCommand { get; }
-    public ICommand StopCommand { get; }
+    public string ManualActionText => _queue.IsRunning ? "■  停止" : "▶  开始";
+    public ICommand ToggleExecutionCommand { get; }
     public ICommand DeleteTaskCommand { get; }
     public ICommand DuplicateTaskCommand { get; }
     public ICommand AddRuleCommand { get; }
@@ -104,9 +103,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         runner.SessionChanged += session => Application.Current.Dispatcher.Invoke(() => CurrentSession = session);
         _log.EntryWritten += entry => Application.Current.Dispatcher.Invoke(() => { Logs.Add(entry); if (Logs.Count > 2000) Logs.RemoveAt(0); OnPropertyChanged(nameof(RecentEvent)); });
         _queue.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(TaskQueueService.Status)) Application.Current.Dispatcher.Invoke(UpdateQueueStatus); };
-        StartCommand = new AsyncRelayCommand(RunByModeAsync, () => !_queue.IsRunning);
-        RunOnceCommand = new AsyncRelayCommand(RunFullQueueAsync, () => !_queue.IsRunning);
-        StopCommand = new RelayCommand(() => _queue.Stop(), () => _queue.IsRunning);
+        ToggleExecutionCommand = new RelayCommand(ToggleSelectedTask, () => _queue.IsRunning || SelectedTask is not null);
         DeleteTaskCommand = new RelayCommand(DeleteTask, () => SelectedTask is not null && !_queue.IsRunning);
         DuplicateTaskCommand = new RelayCommand(DuplicateTask, () => SelectedTask is not null && !_queue.IsRunning);
         AddRuleCommand = new RelayCommand(() => SelectedTask?.ProcessRules.Add(new ProcessRule { ProcessName = "Process.exe" }));
@@ -139,13 +136,20 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var oldIndex = Tasks.IndexOf(source); var newIndex = Tasks.IndexOf(target);
         if (oldIndex >= 0 && newIndex >= 0) Tasks.Move(oldIndex, newIndex);
     }
-    private Task RunByModeAsync() => RunFullQueueAsync();
-    private async Task RunFullQueueAsync()
+    private async void ToggleSelectedTask()
     {
-        var tasks = Tasks.Where(t => t.Enabled).ToList();
-        if (!await ValidateBeforeRunAsync(tasks)) return;
-        await _queue.RunAsync(tasks, TaskIntervalSeconds, FailurePolicy);
-        RaiseCommandStates();
+        if (_queue.IsRunning)
+        {
+            _queue.Stop();
+            return;
+        }
+
+        try { await RunSingleTaskAsync(); }
+        catch (Exception ex)
+        {
+            await _log.WriteAsync(LogLevel.Error, $"启动任务失败：{ex.Message}");
+            ValidationFailed?.Invoke(ex.Message);
+        }
     }
     private async Task RunSingleTaskAsync()
     {
@@ -195,6 +199,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void UpdateQueueStatus()
     {
         StatusText = _queue.Status switch { QueueRunStatus.Running => "执行中", QueueRunStatus.Stopping => "正在停止", QueueRunStatus.Completed => "已完成", QueueRunStatus.Failed => "执行失败", _ => "准备就绪" };
+        OnPropertyChanged(nameof(ManualActionText));
         RaiseCommandStates();
     }
     private void DeleteTask() { if (SelectedTask is null) return; var index = Tasks.IndexOf(SelectedTask); Tasks.Remove(SelectedTask); SelectedTask = Tasks.ElementAtOrDefault(Math.Min(index, Tasks.Count - 1)); }
@@ -265,9 +270,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             Application.Current.Dispatcher.BeginInvoke(RaiseCommandStates);
             return;
         }
-        ((AsyncRelayCommand)StartCommand).RaiseCanExecuteChanged();
-        ((AsyncRelayCommand)RunOnceCommand).RaiseCanExecuteChanged();
-        ((RelayCommand)StopCommand).RaiseCanExecuteChanged();
+        ((RelayCommand)ToggleExecutionCommand).RaiseCanExecuteChanged();
         ((RelayCommand)DeleteTaskCommand).RaiseCanExecuteChanged();
         ((RelayCommand)DuplicateTaskCommand).RaiseCanExecuteChanged();
         ((AsyncRelayCommand)ResetTaskCommand).RaiseCanExecuteChanged();
@@ -276,6 +279,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void TickUi()
     {
         if (CurrentSession is { } session) Elapsed = ((session.EndTime ?? DateTimeOffset.Now) - session.StartTime).ToString(@"hh\:mm\:ss");
+        foreach (var task in Tasks) task.RefreshNextExecutionText();
         OnPropertyChanged(nameof(NextRunText)); RaiseRuntimeProperties();
     }
     private void RaiseRuntimeProperties()
