@@ -102,6 +102,7 @@ public sealed class AppConfig
     public QueueExecutionMode ExecutionMode { get; set; } = QueueExecutionMode.Sequential;
     public int TaskIntervalSeconds { get; set; } = 5;
     public FailurePolicy FailurePolicy { get; set; } = FailurePolicy.ForceCleanupAndContinue;
+    public bool GenerateExecutionLog { get; set; } = true;
     public ScheduleConfig Schedule { get; set; } = new();
     public NotificationConfig Notifications { get; set; } = new();
 }

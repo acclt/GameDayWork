@@ -71,12 +71,6 @@ public partial class MainWindow : Window
             if (text?.Contains("运行一次") == true) button.Command = _viewModel.RunOnceCommand;
             else if (text == "重置") button.Command = _viewModel.ResetTaskCommand;
         }
-        foreach (var radio in FindVisualChildren<RadioButton>(this))
-        {
-            var text = radio.Content?.ToString() ?? "";
-            if (text.StartsWith("顺序执行")) { radio.IsChecked = _viewModel.ExecutionMode == QueueExecutionMode.Sequential; radio.Checked += ExecutionMode_Checked; }
-            else if (text.StartsWith("单独执行")) { radio.IsChecked = _viewModel.ExecutionMode == QueueExecutionMode.Single; radio.Checked += ExecutionMode_Checked; }
-        }
         foreach (var combo in FindVisualChildren<ComboBox>(this))
         {
             if (combo.Items.Count > 0 && combo.Items[0] is ComboBoxItem item && item.Content?.ToString() == "全部")
@@ -86,11 +80,6 @@ public partial class MainWindow : Window
             }
             else if (combo.ItemsSource is not null) ApplyEnumTemplate(combo);
         }
-    }
-    private void ExecutionMode_Checked(object sender, RoutedEventArgs e)
-    {
-        var text = (sender as RadioButton)?.Content?.ToString() ?? "";
-        _viewModel.ExecutionMode = text.StartsWith("单独执行") ? QueueExecutionMode.Single : QueueExecutionMode.Sequential;
     }
     private void LogFilter_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {

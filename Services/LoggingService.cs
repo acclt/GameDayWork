@@ -6,11 +6,13 @@ public sealed class LoggingService
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly string _directory = Path.Combine(AppContext.BaseDirectory, "logs");
+    public bool FileLoggingEnabled { get; set; } = true;
     public event Action<LogEntry>? EntryWritten;
     public async Task WriteAsync(LogLevel level, string message)
     {
         var entry = new LogEntry(DateTimeOffset.Now, level, message);
         EntryWritten?.Invoke(entry);
+        if (!FileLoggingEnabled) return;
         try
         {
             await _gate.WaitAsync();

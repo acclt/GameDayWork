@@ -35,6 +35,29 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public int TaskIntervalSeconds { get => _config.TaskIntervalSeconds; set { _config.TaskIntervalSeconds = Math.Max(0, value); OnPropertyChanged(); } }
     public FailurePolicy FailurePolicy { get => _config.FailurePolicy; set { _config.FailurePolicy = value; OnPropertyChanged(); } }
     public QueueExecutionMode ExecutionMode { get => _config.ExecutionMode; set { _config.ExecutionMode = value; OnPropertyChanged(); } }
+    public bool ShowCompletionNotification
+    {
+        get => _config.Notifications.NotifyOnComplete;
+        set
+        {
+            _config.Notifications.NotifyOnComplete = value;
+            _config.Notifications.Enabled = value
+                || _config.Notifications.NotifyOnStart
+                || _config.Notifications.NotifyOnFailure
+                || _config.Notifications.NotifyOnTimeout;
+            OnPropertyChanged();
+        }
+    }
+    public bool GenerateExecutionLog
+    {
+        get => _config.GenerateExecutionLog;
+        set
+        {
+            _config.GenerateExecutionLog = value;
+            _log.FileLoggingEnabled = value;
+            OnPropertyChanged();
+        }
+    }
     public ScheduleConfig Schedule => _config.Schedule;
     public Array FailurePolicies => Enum.GetValues(typeof(FailurePolicy));
     public Array CompletionModes => Enum.GetValues(typeof(CompletionDetectionMode));
@@ -99,9 +122,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public async Task InitializeAsync()
     {
         _config = await _configService.LoadAsync();
+        _config.ExecutionMode = QueueExecutionMode.Sequential;
+        _log.FileLoggingEnabled = _config.GenerateExecutionLog;
         Tasks.CollectionChanged += (_, _) => RefreshTaskIndexes();
         RefreshTaskIndexes();
-        OnPropertyChanged(nameof(Tasks)); OnPropertyChanged(nameof(TaskIntervalSeconds)); OnPropertyChanged(nameof(FailurePolicy)); OnPropertyChanged(nameof(Schedule));
+        OnPropertyChanged(nameof(Tasks)); OnPropertyChanged(nameof(TaskIntervalSeconds)); OnPropertyChanged(nameof(FailurePolicy)); OnPropertyChanged(nameof(Schedule)); OnPropertyChanged(nameof(ShowCompletionNotification)); OnPropertyChanged(nameof(GenerateExecutionLog));
         SelectedTask = Tasks.FirstOrDefault();
         _scheduler.Start(_config.Schedule, RunFullQueueAsync);
         OnPropertyChanged(nameof(NextRunText));
@@ -115,9 +140,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var oldIndex = Tasks.IndexOf(source); var newIndex = Tasks.IndexOf(target);
         if (oldIndex >= 0 && newIndex >= 0) Tasks.Move(oldIndex, newIndex);
     }
-    private Task RunByModeAsync() => ExecutionMode == QueueExecutionMode.Single
-        ? RunSingleTaskAsync()
-        : RunFullQueueAsync();
+    private Task RunByModeAsync() => RunFullQueueAsync();
     private async Task RunFullQueueAsync()
     {
         var tasks = Tasks.Where(t => t.Enabled).ToList();
