@@ -43,11 +43,11 @@ public sealed class AutomationTaskConfig : ObservableObject
         get
         {
             var name = Name.Trim().ToUpperInvariant();
-            if (name.StartsWith("BGI", StringComparison.Ordinal)) return "https://github.com/babalae/better-genshin-impact";
-            if (name.StartsWith("MAA", StringComparison.Ordinal) || name.StartsWith("MMA", StringComparison.Ordinal)) return "https://github.com/MaaAssistantArknights/MaaAssistantArknights";
-            if (name.StartsWith("ZOG", StringComparison.Ordinal)) return "https://github.com/OneDragon-Anything/ZenlessZoneZero-OneDragon";
-            if (name.StartsWith("MFA", StringComparison.Ordinal) || name.StartsWith("MAN", StringComparison.Ordinal)) return "https://github.com/duorua/narutomobile";
-            if (name.StartsWith("M7A", StringComparison.Ordinal)) return "https://github.com/moesnow/March7thAssistant";
+            if (name.StartsWith("BGI", StringComparison.Ordinal)) return "https://github.com/babalae/better-genshin-impact/releases";
+            if (name.StartsWith("MAA", StringComparison.Ordinal) || name.StartsWith("MMA", StringComparison.Ordinal)) return "https://github.com/MaaAssistantArknights/MaaAssistantArknights/releases";
+            if (name.StartsWith("ZOG", StringComparison.Ordinal)) return "https://github.com/OneDragon-Anything/ZenlessZoneZero-OneDragon/releases";
+            if (name.StartsWith("MFA", StringComparison.Ordinal) || name.StartsWith("MAN", StringComparison.Ordinal)) return "https://github.com/duorua/narutomobile/releases";
+            if (name.StartsWith("M7A", StringComparison.Ordinal)) return "https://github.com/moesnow/March7thAssistant/releases";
             return "";
         }
     }
