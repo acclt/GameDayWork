@@ -58,7 +58,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ICommand StartCommand { get; }
     public ICommand RunOnceCommand { get; }
     public ICommand StopCommand { get; }
-    public ICommand AddTaskCommand { get; }
     public ICommand DeleteTaskCommand { get; }
     public ICommand DuplicateTaskCommand { get; }
     public ICommand AddRuleCommand { get; }
@@ -85,7 +84,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         StartCommand = new AsyncRelayCommand(RunByModeAsync, () => !_queue.IsRunning);
         RunOnceCommand = new AsyncRelayCommand(RunFullQueueAsync, () => !_queue.IsRunning);
         StopCommand = new RelayCommand(() => _queue.Stop(), () => _queue.IsRunning);
-        AddTaskCommand = new RelayCommand(AddTask);
         DeleteTaskCommand = new RelayCommand(DeleteTask, () => SelectedTask is not null && !_queue.IsRunning);
         DuplicateTaskCommand = new RelayCommand(DuplicateTask, () => SelectedTask is not null && !_queue.IsRunning);
         AddRuleCommand = new RelayCommand(() => SelectedTask?.ProcessRules.Add(new ProcessRule { ProcessName = "Process.exe" }));
@@ -101,6 +99,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public async Task InitializeAsync()
     {
         _config = await _configService.LoadAsync();
+        Tasks.CollectionChanged += (_, _) => RefreshTaskIndexes();
+        RefreshTaskIndexes();
         OnPropertyChanged(nameof(Tasks)); OnPropertyChanged(nameof(TaskIntervalSeconds)); OnPropertyChanged(nameof(FailurePolicy)); OnPropertyChanged(nameof(Schedule));
         SelectedTask = Tasks.FirstOrDefault();
         _scheduler.Start(_config.Schedule, RunFullQueueAsync);
@@ -147,7 +147,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         StatusText = _queue.Status switch { QueueRunStatus.Running => "执行中", QueueRunStatus.Stopping => "正在停止", QueueRunStatus.Completed => "已完成", QueueRunStatus.Failed => "执行失败", _ => "准备就绪" };
         RaiseCommandStates();
     }
-    private void AddTask() { var task = new AutomationTaskConfig(); Tasks.Add(task); SelectedTask = task; }
     private void DeleteTask() { if (SelectedTask is null) return; var index = Tasks.IndexOf(SelectedTask); Tasks.Remove(SelectedTask); SelectedTask = Tasks.ElementAtOrDefault(Math.Min(index, Tasks.Count - 1)); }
     private void DuplicateTask()
     {
@@ -194,6 +193,27 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         NoticeRequested?.Invoke(added + updated > 0
             ? $"已应用本机工具适配：新增 {added} 项，更新 {updated} 项。"
             : "未发现 BGI、MAA、ZOG、MFA 或 M7A。");
+    }
+    public IReadOnlyList<AutomationTaskConfig> DiscoverKnownTools() => _toolProfiles.Discover();
+    public bool ContainsKnownTool(string name) => Tasks.Any(task => NormalizeKnownToolName(task.Name) == NormalizeKnownToolName(name));
+    public async Task<bool> AddKnownToolAsync(AutomationTaskConfig profile)
+    {
+        if (_queue.IsRunning || ContainsKnownTool(profile.Name)) return false;
+        Tasks.Add(profile);
+        SelectedTask = profile;
+        await SaveAsync();
+        await _log.WriteAsync(LogLevel.Success, $"已添加适配任务：{profile.Name}");
+        return true;
+    }
+    private static string NormalizeKnownToolName(string name) => name.ToUpperInvariant() switch
+    {
+        "MMA" => "MAA",
+        "MAN" => "MFA",
+        _ => name.ToUpperInvariant()
+    };
+    private void RefreshTaskIndexes()
+    {
+        for (var index = 0; index < Tasks.Count; index++) Tasks[index].DisplayIndex = index + 1;
     }
     private void RaiseCommandStates()
     {

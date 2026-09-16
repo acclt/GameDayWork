@@ -1,7 +1,10 @@
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Data;
+using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using GameOrchestrator.Models;
 
 namespace GameOrchestrator.Infrastructure;
@@ -45,4 +48,54 @@ public sealed class EnumEqualsToVisibilityConverter : IValueConverter
             : Visibility.Collapsed;
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => Binding.DoNothing;
+}
+
+public sealed class ExecutableIconConverter : IValueConverter
+{
+    private static readonly Dictionary<string, ImageSource?> Cache = new(StringComparer.OrdinalIgnoreCase);
+
+    public object? Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        var path = value as string;
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return null;
+        lock (Cache)
+        {
+            if (Cache.TryGetValue(path, out var cached)) return cached;
+            return Cache[path] = Extract(path);
+        }
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => Binding.DoNothing;
+
+    private static ImageSource? Extract(string path)
+    {
+        var result = SHGetFileInfo(path, 0, out var info, (uint)Marshal.SizeOf<SHFILEINFO>(), 0x100);
+        if (result == IntPtr.Zero || info.Icon == IntPtr.Zero) return null;
+        try
+        {
+            var source = Imaging.CreateBitmapSourceFromHIcon(info.Icon, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+            source.Freeze();
+            return source;
+        }
+        finally
+        {
+            DestroyIcon(info.Icon);
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct SHFILEINFO
+    {
+        public IntPtr Icon;
+        public int IconIndex;
+        public uint Attributes;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string DisplayName;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 80)] public string TypeName;
+    }
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr SHGetFileInfo(string path, uint attributes, out SHFILEINFO info, uint infoSize, uint flags);
+
+    [DllImport("user32.dll")]
+    private static extern bool DestroyIcon(IntPtr icon);
 }

@@ -133,6 +133,36 @@ public partial class MainWindow : Window
     private void Maximize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
     private void Close_Click(object sender, RoutedEventArgs e) => Close();
     private void LogsChanged(object? sender, NotifyCollectionChangedEventArgs e) { if (_viewModel.Logs.Count > 0) LogList.ScrollIntoView(_viewModel.Logs[^1]); }
+    private void AddTask_Click(object sender, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu
+        {
+            PlacementTarget = sender as Button,
+            Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom,
+            MinWidth = 220
+        };
+        var profiles = _viewModel.DiscoverKnownTools();
+        foreach (var profile in profiles)
+        {
+            var alreadyAdded = _viewModel.ContainsKnownTool(profile.Name);
+            var item = new MenuItem
+            {
+                Header = alreadyAdded ? $"{profile.Name}（已添加）" : profile.Name,
+                IsEnabled = !alreadyAdded,
+                Tag = profile
+            };
+            item.Click += AddKnownTool_Click;
+            menu.Items.Add(item);
+        }
+        if (profiles.Count == 0)
+            menu.Items.Add(new MenuItem { Header = "未找到已适配的软件", IsEnabled = false });
+        menu.IsOpen = true;
+    }
+    private async void AddKnownTool_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as MenuItem)?.Tag is AutomationTaskConfig profile)
+            await _viewModel.AddKnownToolAsync(profile);
+    }
     private void TaskList_MouseDown(object sender, MouseButtonEventArgs e) => _dragStart = e.GetPosition(TaskList);
     private void TaskList_MouseMove(object sender, MouseEventArgs e)
     {

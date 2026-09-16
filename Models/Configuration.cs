@@ -22,10 +22,12 @@ public sealed class AutomationTaskConfig : ObservableObject
     private int _cleanupRetries = 3;
     private bool _runAsAdministrator;
     private TaskRunStatus _status = TaskRunStatus.Idle;
+    private int _displayIndex;
 
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get => _name; set { if (SetProperty(ref _name, value)) OnPropertyChanged(nameof(IconText)); } }
     [JsonIgnore] public string IconText => string.IsNullOrWhiteSpace(Name) ? "?" : Name[..1].ToUpperInvariant();
+    [JsonIgnore] public int DisplayIndex { get => _displayIndex; internal set => SetProperty(ref _displayIndex, value); }
     public bool Enabled { get => _enabled; set => SetProperty(ref _enabled, value); }
     public string ProgramPath { get => _programPath; set { if (SetProperty(ref _programPath, value)) WorkingDirectory = Path.GetDirectoryName(value) ?? ""; } }
     public string Arguments { get => _arguments; set => SetProperty(ref _arguments, value); }
