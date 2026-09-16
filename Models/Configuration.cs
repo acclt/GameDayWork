@@ -138,10 +138,14 @@ public sealed class ScheduleConfig : ObservableObject
 public sealed class NotificationConfig
 {
     public bool Enabled { get; set; }
-    public bool NotifyOnStart { get; set; }
+    [JsonPropertyName("weComWebhookUrl")]
+    public string WeComWebhookUrl { get; set; } = "";
+    public bool NotifyOnStart { get; set; } = true;
     public bool NotifyOnComplete { get; set; } = true;
     public bool NotifyOnFailure { get; set; } = true;
     public bool NotifyOnTimeout { get; set; } = true;
+    [JsonPropertyName("notifyOnForcedStop")]
+    public bool NotifyOnForcedStop { get; set; } = true;
     public bool CaptureOnStart { get; set; }
     public bool CaptureOnComplete { get; set; }
     public bool CaptureOnFailure { get; set; }

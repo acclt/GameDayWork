@@ -122,6 +122,7 @@ public partial class MainWindow : Window
     }
     private void ShowValidationErrors(string message) => MessageBox.Show(this, message, "无法开始执行", MessageBoxButton.OK, MessageBoxImage.Warning);
     private void ShowNotice(string message) => MessageBox.Show(this, message, "本机工具识别", MessageBoxButton.OK, MessageBoxImage.Information);
+    private void Settings_Click(object sender, RoutedEventArgs e) => new SettingsWindow(_viewModel) { Owner = this }.ShowDialog();
     private void WirePlaceholderControls()
     {
         foreach (var button in FindVisualChildren<Button>(this))

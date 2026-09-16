@@ -24,7 +24,8 @@
 - `GetLastInputInfo` 空闲检测，默认 30 分钟进入假息屏，鼠标或键盘输入立即恢复
 - 定时任务在 `PrepareAt = ScheduledAt - WakeBefore` 提前恢复画面，在 `LaunchAt` 准点串行启动
 - 托盘常驻；关闭主窗口只隐藏，只有托盘“退出程序”才结束进程
-- 截图及通知接口预留；不包含实时视图和 Webhook 发送
+- 右上角独立设置窗口，集中管理 Screen Manager 与企业微信通知
+- 企业微信群机器人 Webhook 通知：应用启动、任务完成、任务故障、强制终止（超时或用户停止）
 
 ## 构建
 
@@ -44,7 +45,7 @@ dotnet run --project .\tests\GameOrchestrator.SmokeTests\GameOrchestrator.SmokeT
 发布 Windows x64 便携包：
 
 ```powershell
-.\scripts\Publish-Portable.ps1 -Version 0.2.0
+.\scripts\Publish-Portable.ps1 -Version 0.3.0
 ```
 
 配置位于 `data/config.json`，日志位于 `logs/yyyy-MM-dd.log`。进程规则默认禁止按名称兜底，避免误杀同名进程。

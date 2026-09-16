@@ -76,11 +76,12 @@
           </Border>
           <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="18,0">
             <TextBlock Text="GameDayWork" FontSize="22" FontWeight="Bold" Foreground="#071536" />
-            <TextBlock Text="v0.2.0" Foreground="#6E7F9C" Margin="16,5,0,0" />
+            <TextBlock Text="v0.3.0" Foreground="#6E7F9C" Margin="16,5,0,0" />
             <TextBlock Text="让日常更简单" Foreground="#8190AA" Margin="16,5,0,0" />
           </StackPanel>
           <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
             <Button Content="{Binding ManualActionText}" Command="{Binding ToggleExecutionCommand}" Style="{StaticResource PrimaryButton}" MinWidth="104" Padding="15,8" Margin="0,0,8,0" />
+            <Button Content="⚙ 设置" MinWidth="96" Padding="15,8" Margin="0,0,8,0" Click="Settings_Click" />
             <Border Width="1" Height="24" Background="#D4DFEE" Margin="8,0" />
             <Button Content="—" Style="{StaticResource IconButton}" Background="Transparent" BorderThickness="0" Click="Minimize_Click" />
             <Button Content="□" Style="{StaticResource IconButton}" Background="Transparent" BorderThickness="0" Click="Maximize_Click" />
@@ -296,34 +297,6 @@
                       <ComboBox Grid.Column="1" ItemsSource="{Binding CompletionActions}" SelectedItem="{Binding SelectedTask.CompletionAction}" ToolTip="定时任务完成后是否继续执行日常列表中的下一项" />
                     </Grid>
                     <Border Style="{StaticResource Group}">
-                      <TextBlock Text="Screen Manager（全局）" FontWeight="SemiBold" />
-                    </Border>
-                    <StackPanel Margin="4,0,0,4">
-                      <CheckBox Content="启用空闲假息屏" IsChecked="{Binding EnableScreenManager}" Style="{StaticResource Switch}" />
-                      <Grid Margin="0,10,0,0">
-                        <Grid.ColumnDefinitions>
-                          <ColumnDefinition Width="125" />
-                          <ColumnDefinition Width="110" />
-                          <ColumnDefinition />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="空闲超时" Style="{StaticResource Label}" />
-                        <TextBox Grid.Column="1" Text="{Binding IdleTimeoutMinutes,UpdateSourceTrigger=LostFocus}" />
-                        <TextBlock Grid.Column="2" Text="分钟" Foreground="#6E7F99" VerticalAlignment="Center" Margin="12,0" />
-                      </Grid>
-                      <Grid Margin="0,8,0,0">
-                        <Grid.ColumnDefinitions>
-                          <ColumnDefinition Width="125" />
-                          <ColumnDefinition Width="110" />
-                          <ColumnDefinition />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="全局提前恢复" Style="{StaticResource Label}" />
-                        <TextBox Grid.Column="1" Text="{Binding WakeBeforeTaskSeconds,UpdateSourceTrigger=LostFocus}" />
-                        <TextBlock Grid.Column="2" Text="秒" Foreground="#6E7F99" VerticalAlignment="Center" Margin="12,0" />
-                      </Grid>
-                      <CheckBox Content="任务链结束后自动进入假息屏" IsChecked="{Binding AutoBlackoutAfterTask}" Margin="0,10,0,0" />
-                      <TextBlock Text="程序不会修改 Windows 电源计划；请手动将关闭显示器和睡眠设为“从不”。" Foreground="#6E7F99" FontSize="12" Margin="0,8,0,0" TextWrapping="Wrap" />
-                    </StackPanel>
-                    <Border Style="{StaticResource Group}">
                       <TextBlock Text="任务说明" FontWeight="SemiBold" />
                     </Border>
                     <TextBox Text="{Binding SelectedTask.Description}" Height="94" TextWrapping="Wrap" AcceptsReturn="True" VerticalContentAlignment="Top" />
@@ -377,9 +350,6 @@
                     <TextBlock Text="优先按 RuntimeSession、PID、Job Object、进程树、启动时间和完整路径清理；名称兜底默认关闭。" TextWrapping="Wrap" />
                   </Border>
                 </StackPanel>
-              </TabItem>
-              <TabItem Header="通知（预留）">
-                <TextBlock Text="事件截图与 Webhook 通知接口已预留。" Margin="14" />
               </TabItem>
               <TabItem Header="仓库地址">
                 <StackPanel Margin="14">
@@ -489,9 +459,8 @@
                   </ComboBox>
                 </StackPanel>
                 <StackPanel Grid.Row="1" Orientation="Horizontal" VerticalAlignment="Center">
-                  <TextBlock Text="全部完成后" Style="{StaticResource Label}" Margin="0,0,14,0" />
-                  <CheckBox Content="显示通知" IsChecked="{Binding ShowCompletionNotification}" Style="{StaticResource Switch}" />
-                  <CheckBox Content="生成执行日志" IsChecked="{Binding GenerateExecutionLog}" Style="{StaticResource Switch}" Margin="16,0,0,0" />
+                  <TextBlock Text="运行选项" Style="{StaticResource Label}" Margin="0,0,14,0" />
+                  <CheckBox Content="生成执行日志" IsChecked="{Binding GenerateExecutionLog}" Style="{StaticResource Switch}" />
                 </StackPanel>
                 <Button Grid.Row="1" Grid.Column="1" Content="打开日志文件夹" Command="{Binding OpenLogsCommand}" HorizontalAlignment="Right" VerticalAlignment="Center" />
               </Grid>

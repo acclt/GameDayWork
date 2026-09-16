@@ -20,6 +20,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly TaskQueueService _queue;
     private readonly ScreenManager _screenManager;
     private readonly TaskLaunchCoordinator _launchCoordinator;
+    private readonly WeComNotificationService _notificationService;
     private AppConfig _config = new();
     private AutomationTaskConfig? _selectedTask;
     private RuntimeSession? _currentSession;
@@ -37,16 +38,35 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public int TaskIntervalSeconds { get => _config.TaskIntervalSeconds; set { _config.TaskIntervalSeconds = Math.Max(0, value); OnPropertyChanged(); } }
     public FailurePolicy FailurePolicy { get => _config.FailurePolicy; set { _config.FailurePolicy = value; OnPropertyChanged(); } }
     public QueueExecutionMode ExecutionMode { get => _config.ExecutionMode; set { _config.ExecutionMode = value; OnPropertyChanged(); } }
-    public bool ShowCompletionNotification
+    public string WeComWebhookUrl
     {
-        get => _config.Notifications.NotifyOnComplete;
+        get => _config.Notifications.WeComWebhookUrl;
         set
         {
-            _config.Notifications.NotifyOnComplete = value;
-            _config.Notifications.Enabled = value
-                || _config.Notifications.NotifyOnStart
-                || _config.Notifications.NotifyOnFailure
-                || _config.Notifications.NotifyOnTimeout;
+            if (_config.Notifications.WeComWebhookUrl == value) return;
+            _config.Notifications.WeComWebhookUrl = value ?? "";
+            _config.Notifications.Enabled = !string.IsNullOrWhiteSpace(value);
+            OnPropertyChanged();
+        }
+    }
+    public bool NotifyOnStart { get => _config.Notifications.NotifyOnStart; set { _config.Notifications.NotifyOnStart = value; OnPropertyChanged(); } }
+    public bool NotifyOnComplete { get => _config.Notifications.NotifyOnComplete; set { _config.Notifications.NotifyOnComplete = value; OnPropertyChanged(); } }
+    public bool NotifyOnFailure
+    {
+        get => _config.Notifications.NotifyOnFailure;
+        set
+        {
+            _config.Notifications.NotifyOnFailure = value;
+            OnPropertyChanged();
+        }
+    }
+    public bool NotifyOnForcedStop
+    {
+        get => _config.Notifications.NotifyOnForcedStop;
+        set
+        {
+            _config.Notifications.NotifyOnForcedStop = value;
+            _config.Notifications.NotifyOnTimeout = value;
             OnPropertyChanged();
         }
     }
@@ -152,6 +172,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var bus = new TaskEventBus();
         var monitor = new ProcessMonitorService();
         var cleanup = new ProcessCleanupService(monitor, _log);
+        _notificationService = new WeComNotificationService(bus, () => _config.Notifications, _log);
         var runner = new TaskRunnerService(monitor, cleanup, _log, bus);
         _screenManager = new ScreenManager(_log);
         _queue = new TaskQueueService(runner, _log, bus);
@@ -186,6 +207,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public async Task InitializeAsync()
     {
         _config = await _configService.LoadAsync();
+        _config.Notifications ??= new NotificationConfig();
+        _config.Notifications.Enabled = !string.IsNullOrWhiteSpace(_config.Notifications.WeComWebhookUrl);
         _config.ExecutionMode = QueueExecutionMode.Sequential;
         _config.IdleTimeoutMinutes = Math.Clamp(_config.IdleTimeoutMinutes, 1, 1440);
         _config.WakeBeforeTaskSeconds = Math.Clamp(_config.WakeBeforeTaskSeconds, 0, 3600);
@@ -194,8 +217,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _log.FileLoggingEnabled = _config.GenerateExecutionLog;
         Tasks.CollectionChanged += (_, _) => RefreshTaskIndexes();
         RefreshTaskIndexes();
-        OnPropertyChanged(nameof(Tasks)); OnPropertyChanged(nameof(TaskIntervalSeconds)); OnPropertyChanged(nameof(FailurePolicy)); OnPropertyChanged(nameof(ShowCompletionNotification)); OnPropertyChanged(nameof(GenerateExecutionLog));
+        OnPropertyChanged(nameof(Tasks)); OnPropertyChanged(nameof(TaskIntervalSeconds)); OnPropertyChanged(nameof(FailurePolicy)); OnPropertyChanged(nameof(GenerateExecutionLog));
         OnPropertyChanged(nameof(EnableScreenManager)); OnPropertyChanged(nameof(IdleTimeoutMinutes)); OnPropertyChanged(nameof(WakeBeforeTaskSeconds)); OnPropertyChanged(nameof(AutoBlackoutAfterTask));
+        OnPropertyChanged(nameof(WeComWebhookUrl)); OnPropertyChanged(nameof(NotifyOnStart)); OnPropertyChanged(nameof(NotifyOnComplete)); OnPropertyChanged(nameof(NotifyOnFailure)); OnPropertyChanged(nameof(NotifyOnForcedStop));
         SelectedTask = Tasks.FirstOrDefault();
         _screenManager.StartMonitoring();
         _scheduler.Start(() => Tasks.ToList(), () => _config.WakeBeforeTaskSeconds, RunScheduledTasksAsync);
@@ -203,6 +227,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         await _log.WriteAsync(LogLevel.Info, $"程序启动，已加载任务队列（{Tasks.Count} 项）");
     }
     public Task SaveAsync() => _configService.SaveAsync(_config);
+    public Task<NotificationTestResult> TestWeComNotificationAsync() => _notificationService.SendTestAsync();
     public Task<bool> EnterBlackoutAsync() => _screenManager.EnterBlackoutAsync();
     public Task ExitBlackoutAsync() => _screenManager.ExitBlackoutAsync();
     public void Reorder(AutomationTaskConfig source, AutomationTaskConfig target)
@@ -369,9 +394,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public void Dispose() { _scheduler.Dispose(); _uiTimer.Stop(); }
     public async Task ShutdownAsync()
     {
-        await _launchCoordinator.DisposeAsync();
-        await SaveAsync();
         Dispose();
+        await _launchCoordinator.DisposeAsync();
+        await _notificationService.DisposeAsync();
+        await SaveAsync();
         await _screenManager.DisposeAsync();
     }
 }

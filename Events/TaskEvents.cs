@@ -12,6 +12,7 @@ public sealed record TaskCleanupCompletedEvent(RuntimeSession Session) : TaskEve
 public sealed record TaskCompletedEvent(RuntimeSession Session) : TaskEvent(Session);
 public sealed record TaskFailedEvent(RuntimeSession Session, string Error) : TaskEvent(Session);
 public sealed record TaskTimedOutEvent(RuntimeSession Session) : TaskEvent(Session);
+public sealed record TaskStoppedEvent(RuntimeSession Session) : TaskEvent(Session);
 public sealed record QueueStartedEvent : IDomainEvent { public DateTimeOffset OccurredAt { get; } = DateTimeOffset.Now; }
 public sealed record QueueCompletedEvent : IDomainEvent { public DateTimeOffset OccurredAt { get; } = DateTimeOffset.Now; }
 public sealed record QueueFailedEvent(string Error) : IDomainEvent { public DateTimeOffset OccurredAt { get; } = DateTimeOffset.Now; }

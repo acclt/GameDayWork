@@ -56,11 +56,11 @@ public sealed class TaskRunnerService(ProcessMonitorService monitor, ProcessClea
             try { await WaitForCompletionAsync(root, task, session, linked.Token); }
             catch (OperationCanceledException) when (timeout.IsCancellationRequested && !queueToken.IsCancellationRequested) { timedOut = true; }
             if (queueToken.IsCancellationRequested) session.ExitReason = "用户停止";
-            else if (timedOut) { task.Status = session.Status = TaskRunStatus.TimedOut; session.ExitReason = "超过最大运行时间"; events.Publish(new TaskTimedOutEvent(session)); await log.WriteAsync(LogLevel.Error, $"{task.Name} 已超时"); }
+            else if (timedOut) { task.Status = session.Status = TaskRunStatus.TimedOut; session.ExitReason = "超过最大运行时间"; await log.WriteAsync(LogLevel.Error, $"{task.Name} 已超时"); }
             else { task.Status = session.Status = TaskRunStatus.CompletionDetected; session.ExitReason = "完成条件满足"; events.Publish(new TaskCompletionDetectedEvent(session)); await log.WriteAsync(LogLevel.Info, $"检测到 {task.Name} 已完成"); }
         }
         catch (OperationCanceledException) { session.ExitReason = "用户停止"; }
-        catch (Exception ex) { error = ex.Message; session.ExitReason = ex.Message; events.Publish(new TaskFailedEvent(session, ex.Message)); await log.WriteAsync(LogLevel.Error, $"{task.Name} 执行失败：{ex.Message}"); }
+        catch (Exception ex) { error = ex.Message; session.ExitReason = ex.Message; await log.WriteAsync(LogLevel.Error, $"{task.Name} 执行失败：{ex.Message}"); }
         finally
         {
             task.Status = session.Status = TaskRunStatus.Cleaning; events.Publish(new TaskCleanupStartedEvent(session)); SessionChanged?.Invoke(session);
@@ -77,6 +77,9 @@ public sealed class TaskRunnerService(ProcessMonitorService monitor, ProcessClea
         var success = error is null && !timedOut && !queueToken.IsCancellationRequested;
         task.Status = session.Status = queueToken.IsCancellationRequested ? TaskRunStatus.Stopped : timedOut ? TaskRunStatus.TimedOut : success ? TaskRunStatus.Completed : TaskRunStatus.Failed;
         if (success) { events.Publish(new TaskCompletedEvent(session)); await log.WriteAsync(LogLevel.Success, $"{task.Name} 已完成，耗时 {(session.EndTime!.Value - session.StartTime).ToString(@"hh\:mm\:ss")}"); }
+        else if (queueToken.IsCancellationRequested) { events.Publish(new TaskStoppedEvent(session)); await log.WriteAsync(LogLevel.Warning, $"{task.Name} 已强制终止并完成清理"); }
+        else if (timedOut) events.Publish(new TaskTimedOutEvent(session));
+        else if (!timedOut) events.Publish(new TaskFailedEvent(session, error ?? session.ExitReason));
         SessionChanged?.Invoke(session);
         return new(session, success, timedOut, error);
     }
