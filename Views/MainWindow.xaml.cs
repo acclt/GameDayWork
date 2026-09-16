@@ -56,6 +56,12 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog(this) == true && _viewModel.SelectedTask is { } task) task.CompletionLogPath = dialog.FileName;
     }
     private void ClearLogs_Click(object sender, RoutedEventArgs e) => _viewModel.Logs.Clear();
+    private void OpenRepository_Click(object sender, RoutedEventArgs e)
+    {
+        var url = _viewModel.SelectedTask?.RepositoryUrl;
+        if (!string.IsNullOrWhiteSpace(url))
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+    }
     private void ShowValidationErrors(string message) => MessageBox.Show(this, message, "无法开始执行", MessageBoxButton.OK, MessageBoxImage.Warning);
     private void ShowNotice(string message) => MessageBox.Show(this, message, "本机工具识别", MessageBoxButton.OK, MessageBoxImage.Information);
     private void WirePlaceholderControls()

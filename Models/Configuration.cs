@@ -27,8 +27,30 @@ public sealed class AutomationTaskConfig : ObservableObject
     private int _displayIndex;
 
     public Guid Id { get; set; } = Guid.NewGuid();
-    public string Name { get => _name; set { if (SetProperty(ref _name, value)) OnPropertyChanged(nameof(IconText)); } }
+    public string Name
+    {
+        get => _name;
+        set
+        {
+            if (!SetProperty(ref _name, value)) return;
+            OnPropertyChanged(nameof(IconText));
+            OnPropertyChanged(nameof(RepositoryUrl));
+        }
+    }
     [JsonIgnore] public string IconText => string.IsNullOrWhiteSpace(Name) ? "?" : Name[..1].ToUpperInvariant();
+    [JsonIgnore] public string RepositoryUrl
+    {
+        get
+        {
+            var name = Name.Trim().ToUpperInvariant();
+            if (name.StartsWith("BGI", StringComparison.Ordinal)) return "https://github.com/babalae/better-genshin-impact";
+            if (name.StartsWith("MAA", StringComparison.Ordinal) || name.StartsWith("MMA", StringComparison.Ordinal)) return "https://github.com/MaaAssistantArknights/MaaAssistantArknights";
+            if (name.StartsWith("ZOG", StringComparison.Ordinal)) return "https://github.com/OneDragon-Anything/ZenlessZoneZero-OneDragon";
+            if (name.StartsWith("MFA", StringComparison.Ordinal) || name.StartsWith("MAN", StringComparison.Ordinal)) return "https://github.com/duorua/narutomobile";
+            if (name.StartsWith("M7A", StringComparison.Ordinal)) return "https://github.com/moesnow/March7thAssistant";
+            return "";
+        }
+    }
     [JsonIgnore] public int DisplayIndex { get => _displayIndex; internal set => SetProperty(ref _displayIndex, value); }
     public bool Enabled { get => _enabled; set => SetProperty(ref _enabled, value); }
     public string ProgramPath { get => _programPath; set { if (SetProperty(ref _programPath, value)) WorkingDirectory = Path.GetDirectoryName(value) ?? ""; } }

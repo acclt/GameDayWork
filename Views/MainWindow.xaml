@@ -173,15 +173,10 @@
         <Border Grid.Column="1" Style="{StaticResource Card}" Margin="0,0,10,0" Padding="14">
           <DockPanel>
             <Grid DockPanel.Dock="Top" Margin="4,0,4,10">
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition />
-                <ColumnDefinition Width="Auto" />
-              </Grid.ColumnDefinitions>
               <TextBlock Style="{StaticResource Title}" VerticalAlignment="Center">
                 <Run Text="任务设置 - " />
                 <Run Text="{Binding SelectedTask.Name}" />
               </TextBlock>
-              <Button Grid.Column="1" Content="▣  复制配置" Command="{Binding DuplicateTaskCommand}" />
             </Grid>
             <TabControl x:Name="TaskSettingsTabs" Background="Transparent" BorderThickness="0">
               <TabItem Header="基本设置">
@@ -347,6 +342,14 @@
               </TabItem>
               <TabItem Header="通知（预留）">
                 <TextBlock Text="事件截图与 Webhook 通知接口已预留。" Margin="14" />
+              </TabItem>
+              <TabItem Header="仓库地址">
+                <StackPanel Margin="14">
+                  <TextBlock Text="当前任务对应的 GitHub 仓库" FontWeight="SemiBold" Margin="0,0,0,10" />
+                  <TextBox Text="{Binding SelectedTask.RepositoryUrl,Mode=OneWay}" IsReadOnly="True" Margin="0,0,0,12" />
+                  <Button Content="在 GitHub 中打开" Click="OpenRepository_Click" HorizontalAlignment="Left" />
+                  <TextBlock Text="未识别的自定义任务不会显示仓库地址。" Foreground="#6E7F99" Margin="0,12,0,0" />
+                </StackPanel>
               </TabItem>
             </TabControl>
           </DockPanel>
