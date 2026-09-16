@@ -21,7 +21,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private AppConfig _config = new();
     private AutomationTaskConfig? _selectedTask;
     private RuntimeSession? _currentSession;
-    private string _statusText = "空闲中";
+    private string _statusText = "准备就绪";
     private string _elapsed = "00:00:00";
     private readonly DispatcherTimer _uiTimer;
 
@@ -78,6 +78,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var cleanup = new ProcessCleanupService(monitor, _log);
         var runner = new TaskRunnerService(monitor, cleanup, _log, bus);
         _queue = new TaskQueueService(runner, _log, bus);
+        _scheduler.Error += ex => _ = _log.WriteAsync(LogLevel.Error, $"定时任务执行异常：{ex.Message}");
         runner.SessionChanged += session => Application.Current.Dispatcher.Invoke(() => CurrentSession = session);
         _log.EntryWritten += entry => Application.Current.Dispatcher.Invoke(() => { Logs.Add(entry); if (Logs.Count > 2000) Logs.RemoveAt(0); OnPropertyChanged(nameof(RecentEvent)); });
         _queue.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(TaskQueueService.Status)) Application.Current.Dispatcher.Invoke(UpdateQueueStatus); };
@@ -143,7 +144,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
     private void UpdateQueueStatus()
     {
-        StatusText = _queue.Status switch { QueueRunStatus.Running => "执行中", QueueRunStatus.Stopping => "正在停止", QueueRunStatus.Completed => "已完成", QueueRunStatus.Failed => "执行失败", _ => "空闲中" };
+        StatusText = _queue.Status switch { QueueRunStatus.Running => "执行中", QueueRunStatus.Stopping => "正在停止", QueueRunStatus.Completed => "已完成", QueueRunStatus.Failed => "执行失败", _ => "准备就绪" };
         RaiseCommandStates();
     }
     private void AddTask() { var task = new AutomationTaskConfig(); Tasks.Add(task); SelectedTask = task; }
@@ -196,6 +197,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
     private void RaiseCommandStates()
     {
+        if (!Application.Current.Dispatcher.CheckAccess())
+        {
+            Application.Current.Dispatcher.BeginInvoke(RaiseCommandStates);
+            return;
+        }
         ((AsyncRelayCommand)StartCommand).RaiseCanExecuteChanged();
         ((AsyncRelayCommand)RunOnceCommand).RaiseCanExecuteChanged();
         ((RelayCommand)StopCommand).RaiseCanExecuteChanged();
