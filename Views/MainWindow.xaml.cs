@@ -60,7 +60,6 @@ public partial class MainWindow : Window
         var dialog = new ScheduleWindow(_viewModel.Schedule) { Owner = this };
         if (dialog.ShowDialog() == true) await _viewModel.ApplyScheduleAsync();
     }
-    private void Policy_Click(object sender, RoutedEventArgs e) => MessageBox.Show(this, "请在左下角“异常时”下拉框中选择执行策略。", "执行策略", MessageBoxButton.OK, MessageBoxImage.Information);
     private void ClearLogs_Click(object sender, RoutedEventArgs e) => _viewModel.Logs.Clear();
     private void ShowValidationErrors(string message) => MessageBox.Show(this, message, "无法开始执行", MessageBoxButton.OK, MessageBoxImage.Warning);
     private void ShowNotice(string message) => MessageBox.Show(this, message, "本机工具识别", MessageBoxButton.OK, MessageBoxImage.Information);

@@ -92,27 +92,11 @@
       <!-- 工具栏 -->
       <Border Grid.Row="1" Background="White" CornerRadius="11" Margin="10,0" BorderBrush="#E1E9F4" BorderThickness="1">
         <Grid Margin="18,7">
-          <Grid.ColumnDefinitions>
-            <ColumnDefinition />
-            <ColumnDefinition Width="Auto" />
-          </Grid.ColumnDefinitions>
           <StackPanel Orientation="Horizontal">
             <Button Content="▶  开始执行" Style="{StaticResource PrimaryButton}" Command="{Binding StartCommand}" MinWidth="152" Margin="0,0,12,0" />
             <Button Content="Ⅱ  停止" Command="{Binding StopCommand}" MinWidth="120" Background="#F2F4F7" Margin="0,0,12,0" />
             <Button Content="⟳  运行一次" Command="{Binding StartCommand}" MinWidth="150" />
-            <Button Content="▣  定时设置" Style="{StaticResource ToolButton}" Click="Schedule_Click" />
-            <Button Content="≋  执行策略" Style="{StaticResource ToolButton}" Click="Policy_Click" />
-            <Button Content="♧  通知设置（预留）" Style="{StaticResource ToolButton}" IsEnabled="False" />
           </StackPanel>
-          <Border Grid.Column="1" CornerRadius="18" Background="#F7F9FC" Padding="18,7">
-            <StackPanel Orientation="Horizontal">
-              <Ellipse Width="11" Height="11" Fill="#22C55E" />
-              <TextBlock Text="{Binding StatusText}" FontWeight="Bold" Margin="10,0,22,0" />
-              <Border Width="1" Background="#DCE4EE" />
-              <TextBlock Text="队列下次启动：" Foreground="#51627F" Margin="22,0,4,0" />
-              <TextBlock Text="{Binding NextRunText}" />
-            </StackPanel>
-          </Border>
         </Grid>
       </Border>
       <!-- 三栏 -->
@@ -242,7 +226,10 @@
                 <TextBlock Text="异常时" Style="{StaticResource Label}" />
                 <ComboBox Grid.Column="1" ItemsSource="{Binding FailurePolicies}" SelectedItem="{Binding FailurePolicy}" />
               </Grid>
-              <Button Content="▣  打开日志文件夹" Command="{Binding OpenLogsCommand}" HorizontalAlignment="Left" />
+              <StackPanel Orientation="Horizontal">
+                <Button Content="▣  定时设置" Click="Schedule_Click" Margin="0,0,8,0" />
+                <Button Content="▣  打开日志文件夹" Command="{Binding OpenLogsCommand}" />
+              </StackPanel>
             </StackPanel>
           </Border>
         </Grid>
@@ -435,8 +422,14 @@
               </Grid.RowDefinitions>
               <Grid>
                 <TextBlock Text="当前状态" Style="{StaticResource Title}" VerticalAlignment="Center" />
-                <Border HorizontalAlignment="Right" Background="#DFF8E7" CornerRadius="18" Padding="20,7">
-                  <TextBlock Text="{Binding StatusText}" Foreground="#16843B" FontWeight="SemiBold" />
+                <Border HorizontalAlignment="Right" Background="#F1F8F4" CornerRadius="18" Padding="16,7">
+                  <StackPanel Orientation="Horizontal">
+                    <Ellipse Width="10" Height="10" Fill="#22C55E" />
+                    <TextBlock Text="{Binding StatusText}" Foreground="#16843B" FontWeight="SemiBold" Margin="9,0,14,0" />
+                    <Border Width="1" Background="#CFE4D6" />
+                    <TextBlock Text="下次启动：" Foreground="#61748A" Margin="14,0,4,0" />
+                    <TextBlock Text="{Binding NextRunText}" Foreground="#24364F" />
+                  </StackPanel>
                 </Border>
               </Grid>
               <Border Grid.Row="1" Background="#F7F9FC" CornerRadius="8" Margin="0,2,0,12">
@@ -482,6 +475,7 @@
                 </Grid.ColumnDefinitions>
                 <TextBlock Text="执行日志" Style="{StaticResource Title}" VerticalAlignment="Center" />
                 <StackPanel Grid.Column="1" Orientation="Horizontal">
+                  <Button Content="♧ 通知设置" IsEnabled="False" ToolTip="功能预留" Margin="0,0,8,0" />
                   <Button Content="♲ 清空" Click="ClearLogs_Click" />
                   <Button Content="▣ 导出" Click="ExportLogs_Click" Margin="8,0" />
                   <ComboBox Width="100">
