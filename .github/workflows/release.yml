@@ -1,0 +1,37 @@
+name: Release portable package
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Validate tag and build portable package
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "版本标签格式无效：${{ github.ref_name }}" }
+          .\scripts\Publish-Portable.ps1 -Version $version
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $zip = Get-ChildItem -LiteralPath .\artifacts -Filter 'GameDayWork-v*-win-x64-portable.zip' | Select-Object -First 1
+          if ($null -eq $zip) { throw '未找到便携版压缩包' }
+          gh release create '${{ github.ref_name }}' $zip.FullName --generate-notes --title 'GameDayWork ${{ github.ref_name }}'

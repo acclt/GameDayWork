@@ -8,20 +8,31 @@ using System.Windows.Media;
 using Microsoft.Win32;
 using GameOrchestrator.Models;
 using GameOrchestrator.ViewModels;
+using Forms = System.Windows.Forms;
 
 namespace GameOrchestrator.Views;
 
 public partial class MainWindow : Window
 {
     private readonly MainViewModel _viewModel = new();
+    private readonly Forms.NotifyIcon _trayIcon;
+    private readonly Forms.ToolStripMenuItem _trayStatusItem;
     private Point _dragStart;
-    private bool _isClosing;
-    private bool _closeAfterSave;
+    private bool _exitRequested;
+    private bool _initialized;
     public MainWindow()
     {
         InitializeComponent(); DataContext = _viewModel;
+        _trayStatusItem = new Forms.ToolStripMenuItem("状态：空闲监控") { Enabled = false };
+        _trayIcon = CreateTrayIcon();
+        _viewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MainViewModel.ScreenStateText)) UpdateTrayStatus();
+        };
         Loaded += async (_, _) =>
         {
+            if (_initialized) return;
+            _initialized = true;
             await _viewModel.InitializeAsync();
             _viewModel.Logs.CollectionChanged += LogsChanged;
             _viewModel.ValidationFailed += ShowValidationErrors;
@@ -32,17 +43,64 @@ public partial class MainWindow : Window
     }
     private async void MainWindow_Closing(object? sender, CancelEventArgs e)
     {
-        if (_closeAfterSave) return;
+        if (_exitRequested) return;
         e.Cancel = true;
-        if (_isClosing) return;
-        _isClosing = true;
+        Hide();
         try { await _viewModel.SaveAsync(); }
-        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"关闭前保存配置失败：{ex}"); }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"隐藏前保存配置失败：{ex}"); }
+    }
+
+    private Forms.NotifyIcon CreateTrayIcon()
+    {
+        var menu = new Forms.ContextMenuStrip();
+        menu.Items.Add(_trayStatusItem);
+        menu.Items.Add(new Forms.ToolStripSeparator());
+        menu.Items.Add("显示主窗口", null, (_, _) => ShowMainWindow());
+        menu.Items.Add("进入黑屏", null, async (_, _) => await RunTrayActionAsync(_viewModel.EnterBlackoutAsync));
+        menu.Items.Add("退出黑屏", null, async (_, _) => await RunTrayActionAsync(async () => { await _viewModel.ExitBlackoutAsync(); return true; }));
+        menu.Items.Add(new Forms.ToolStripSeparator());
+        menu.Items.Add("退出程序", null, async (_, _) => await ExitApplicationAsync());
+        var icon = new Forms.NotifyIcon
+        {
+            Text = "GameDayWork - 空闲监控",
+            Icon = System.Drawing.SystemIcons.Application,
+            ContextMenuStrip = menu,
+            Visible = true
+        };
+        icon.DoubleClick += (_, _) => ShowMainWindow();
+        return icon;
+    }
+
+    private void ShowMainWindow()
+    {
+        Show();
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+        Activate();
+    }
+
+    private void UpdateTrayStatus()
+    {
+        _trayStatusItem.Text = $"状态：{_viewModel.ScreenStateText}";
+        _trayIcon.Text = $"GameDayWork - {_viewModel.ScreenStateText}";
+    }
+
+    private async Task RunTrayActionAsync(Func<Task<bool>> action)
+    {
+        try { await action(); }
+        catch (Exception ex) { MessageBox.Show(ex.Message, "Screen Manager", MessageBoxButton.OK, MessageBoxImage.Error); }
+    }
+
+    private async Task ExitApplicationAsync()
+    {
+        if (_exitRequested) return;
+        _exitRequested = true;
+        try { await _viewModel.ShutdownAsync(); }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"退出程序时清理失败：{ex}"); }
         finally
         {
-            _viewModel.Dispose();
-            _closeAfterSave = true;
-            Close();
+            _trayIcon.Visible = false;
+            _trayIcon.Dispose();
+            Application.Current.Shutdown();
         }
     }
     private void Browse_Click(object sender, RoutedEventArgs e)

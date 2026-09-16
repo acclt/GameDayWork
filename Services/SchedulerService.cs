@@ -4,12 +4,18 @@ using GameOrchestrator.Models;
 
 namespace GameOrchestrator.Services;
 
+public sealed record ScheduledLaunchBatch(
+    IReadOnlyList<AutomationTaskConfig> Anchors,
+    DateTime ScheduledAt,
+    DateTime PrepareAt);
+
 public sealed class SchedulerService : IDisposable
 {
     private readonly DispatcherTimer _timer;
-    private readonly HashSet<string> _executedSlots = [];
+    private readonly Dictionary<string, DateTime> _executedSlots = [];
     private Func<IReadOnlyList<AutomationTaskConfig>>? _tasksProvider;
-    private Func<IReadOnlyList<AutomationTaskConfig>, Task>? _callback;
+    private Func<int>? _defaultWakeBeforeProvider;
+    private Func<ScheduledLaunchBatch, Task>? _callback;
     private bool _tickRunning;
 
     public event Action<Exception>? Error;
@@ -18,14 +24,18 @@ public sealed class SchedulerService : IDisposable
     {
         _timer = new DispatcherTimer(DispatcherPriority.Background)
         {
-            Interval = TimeSpan.FromSeconds(20)
+            Interval = TimeSpan.FromMilliseconds(500)
         };
         _timer.Tick += Timer_Tick;
     }
 
-    public void Start(Func<IReadOnlyList<AutomationTaskConfig>> tasksProvider, Func<IReadOnlyList<AutomationTaskConfig>, Task> callback)
+    public void Start(
+        Func<IReadOnlyList<AutomationTaskConfig>> tasksProvider,
+        Func<int> defaultWakeBeforeProvider,
+        Func<ScheduledLaunchBatch, Task> callback)
     {
         _tasksProvider = tasksProvider;
+        _defaultWakeBeforeProvider = defaultWakeBeforeProvider;
         _callback = callback;
         _timer.Start();
         _ = TickSafelyAsync();
@@ -85,26 +95,51 @@ public sealed class SchedulerService : IDisposable
 
     private void Tick()
     {
-        if (_tasksProvider is null || _callback is null) return;
+        if (_tasksProvider is null || _defaultWakeBeforeProvider is null || _callback is null) return;
         var now = DateTime.Now;
-        var due = new List<AutomationTaskConfig>();
+        var defaultWakeBefore = Math.Clamp(_defaultWakeBeforeProvider(), 0, 3600);
+        var occurrences = new List<(AutomationTaskConfig Task, DateTime ScheduledAt, DateTime PrepareAt)>();
+
         foreach (var task in _tasksProvider().Where(task => task.Enabled))
         {
             if (!TryParseTime(task.ScheduledStartTime, out var time)) continue;
-            var delay = now.TimeOfDay - time;
-            var slot = $"{task.Id:N}:{now:yyyyMMdd}:{time.Ticks}";
-            if (delay < TimeSpan.Zero || delay >= TimeSpan.FromSeconds(40) || _executedSlots.Contains(slot)) continue;
-            _executedSlots.Add(slot);
-            due.Add(task);
+            foreach (var date in new[] { now.Date, now.Date.AddDays(1) })
+            {
+                var scheduledAt = date + time;
+                var wakeBefore = Math.Clamp(task.WakeBeforeTaskSeconds ?? defaultWakeBefore, 0, 3600);
+                occurrences.Add((task, scheduledAt, scheduledAt.AddSeconds(-wakeBefore)));
+            }
         }
 
-        _executedSlots.RemoveWhere(slot => !slot.Contains(now.ToString("yyyyMMdd", CultureInfo.InvariantCulture), StringComparison.Ordinal));
-        if (due.Count > 0) _ = InvokeCallbackSafelyAsync(due);
+        foreach (var group in occurrences.GroupBy(item => item.ScheduledAt).OrderBy(group => group.Key))
+        {
+            var prepareAt = group.Min(item => item.PrepareAt);
+            if (now < prepareAt || now > group.Key.AddSeconds(40)) continue;
+
+            var pending = group
+                .Where(item => !_executedSlots.ContainsKey(CreateSlotKey(item.Task, item.ScheduledAt)))
+                .OrderBy(item => item.Task.DisplayIndex)
+                .ToList();
+            if (pending.Count == 0) continue;
+
+            foreach (var item in pending)
+                _executedSlots[CreateSlotKey(item.Task, item.ScheduledAt)] = item.ScheduledAt;
+
+            var batch = new ScheduledLaunchBatch(pending.Select(item => item.Task).ToList(), group.Key, prepareAt);
+            _ = InvokeCallbackSafelyAsync(batch);
+        }
+
+        foreach (var oldSlot in _executedSlots.Where(pair => pair.Value < now.Date.AddDays(-1)).Select(pair => pair.Key).ToList())
+            _executedSlots.Remove(oldSlot);
     }
 
-    private async Task InvokeCallbackSafelyAsync(IReadOnlyList<AutomationTaskConfig> tasks)
+    private static string CreateSlotKey(AutomationTaskConfig task, DateTime scheduledAt) =>
+        $"{task.Id:N}:{scheduledAt:yyyyMMddHHmmss}";
+
+    private async Task InvokeCallbackSafelyAsync(ScheduledLaunchBatch batch)
     {
-        try { await _callback!(tasks); }
+        try { await _callback!(batch); }
+        catch (OperationCanceledException) { }
         catch (Exception ex) { Error?.Invoke(ex); }
     }
 

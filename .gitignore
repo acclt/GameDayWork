@@ -1,6 +1,7 @@
 bin/
 obj/
 publish*/
+artifacts/
 data/
 logs/
 *.user

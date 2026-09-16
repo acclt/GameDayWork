@@ -19,6 +19,11 @@
 - Job Object、父子进程树、完整路径、启动时间与可选名称规则
 - 正常关闭、强制结束、清理重试与二次验证
 - JSON 配置、定时启动整个队列、事件总线
+- Screen Manager 集中状态机：空闲监控、假息屏、准备任务、执行任务
+- 每台显示器一个纯黑无激活 Overlay；支持多显示器、不同 DPI 与显示器插拔
+- `GetLastInputInfo` 空闲检测，默认 30 分钟进入假息屏，鼠标或键盘输入立即恢复
+- 定时任务在 `PrepareAt = ScheduledAt - WakeBefore` 提前恢复画面，在 `LaunchAt` 准点串行启动
+- 托盘常驻；关闭主窗口只隐藏，只有托盘“退出程序”才结束进程
 - 截图及通知接口预留；不包含实时视图和 Webhook 发送
 
 ## 构建
@@ -36,13 +41,15 @@ dotnet run --project .\GameDayWork.csproj
 dotnet run --project .\tests\GameOrchestrator.SmokeTests\GameOrchestrator.SmokeTests.csproj
 ```
 
-发布 Windows EXE：
+发布 Windows x64 便携包：
 
 ```powershell
-dotnet publish .\GameDayWork.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+.\scripts\Publish-Portable.ps1 -Version 0.2.0
 ```
 
 配置位于 `data/config.json`，日志位于 `logs/yyyy-MM-dd.log`。进程规则默认禁止按名称兜底，避免误杀同名进程。
+
+Screen Manager 不修改 Windows 电源计划，也不调用系统息屏、屏保、锁屏或关闭显示器 API。请先在 Windows 中手动把“关闭显示器”和“睡眠”设为“从不”。发布流程详见 [PORTABLE_RELEASE.md](PORTABLE_RELEASE.md)。
 
 开发中已确认的问题见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md)。
 

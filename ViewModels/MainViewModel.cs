@@ -18,6 +18,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly TaskValidationService _validator = new();
     private readonly KnownToolProfileService _toolProfiles = new();
     private readonly TaskQueueService _queue;
+    private readonly ScreenManager _screenManager;
+    private readonly TaskLaunchCoordinator _launchCoordinator;
     private AppConfig _config = new();
     private AutomationTaskConfig? _selectedTask;
     private RuntimeSession? _currentSession;
@@ -58,6 +60,50 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             OnPropertyChanged();
         }
     }
+    public bool EnableScreenManager
+    {
+        get => _config.EnableScreenManager;
+        set
+        {
+            if (_config.EnableScreenManager == value) return;
+            _config.EnableScreenManager = value;
+            _screenManager.Enabled = value;
+            OnPropertyChanged();
+        }
+    }
+    public int IdleTimeoutMinutes
+    {
+        get => _config.IdleTimeoutMinutes;
+        set
+        {
+            var normalized = Math.Clamp(value, 1, 1440);
+            if (_config.IdleTimeoutMinutes == normalized) return;
+            _config.IdleTimeoutMinutes = normalized;
+            _screenManager.IdleTimeout = TimeSpan.FromMinutes(normalized);
+            OnPropertyChanged();
+        }
+    }
+    public int WakeBeforeTaskSeconds
+    {
+        get => _config.WakeBeforeTaskSeconds;
+        set
+        {
+            var normalized = Math.Clamp(value, 0, 3600);
+            if (_config.WakeBeforeTaskSeconds == normalized) return;
+            _config.WakeBeforeTaskSeconds = normalized;
+            OnPropertyChanged();
+        }
+    }
+    public bool AutoBlackoutAfterTask
+    {
+        get => _config.AutoBlackoutAfterTask;
+        set
+        {
+            if (_config.AutoBlackoutAfterTask == value) return;
+            _config.AutoBlackoutAfterTask = value;
+            OnPropertyChanged();
+        }
+    }
     public Array FailurePolicies => Enum.GetValues(typeof(FailurePolicy));
     public Array CompletionModes => Enum.GetValues(typeof(CompletionDetectionMode));
     public Array CompletionActions => Enum.GetValues(typeof(TaskCompletionAction));
@@ -78,7 +124,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     };
     public string RecentEvent => Logs.LastOrDefault()?.Message ?? "选择左侧任务后点击“开始”，或等待定时任务";
 
-    public string ManualActionText => _queue.IsRunning ? "■  停止" : "▶  开始";
+    public string ManualActionText => _launchCoordinator.IsBusy ? "■  停止" : "▶  开始";
+    public ScreenManagerState ScreenState => _screenManager.State;
+    public string ScreenStateText => ScreenState switch
+    {
+        ScreenManagerState.IdleMonitoring => "空闲监控",
+        ScreenManagerState.Blackout => "假息屏中",
+        ScreenManagerState.PreparingTask => "准备任务",
+        ScreenManagerState.RunningTask => "执行任务",
+        _ => ScreenState.ToString()
+    };
     public ICommand ToggleExecutionCommand { get; }
     public ICommand DeleteTaskCommand { get; }
     public ICommand DuplicateTaskCommand { get; }
@@ -98,21 +153,33 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var monitor = new ProcessMonitorService();
         var cleanup = new ProcessCleanupService(monitor, _log);
         var runner = new TaskRunnerService(monitor, cleanup, _log, bus);
+        _screenManager = new ScreenManager(_log);
         _queue = new TaskQueueService(runner, _log, bus);
+        _launchCoordinator = new TaskLaunchCoordinator(_screenManager, _queue, _log, () => _config.AutoBlackoutAfterTask);
         _scheduler.Error += ex => _ = _log.WriteAsync(LogLevel.Error, $"定时任务执行异常：{ex.Message}");
         runner.SessionChanged += session => Application.Current.Dispatcher.Invoke(() => CurrentSession = session);
         _log.EntryWritten += entry => Application.Current.Dispatcher.Invoke(() => { Logs.Add(entry); if (Logs.Count > 2000) Logs.RemoveAt(0); OnPropertyChanged(nameof(RecentEvent)); });
         _queue.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(TaskQueueService.Status)) Application.Current.Dispatcher.Invoke(UpdateQueueStatus); };
-        ToggleExecutionCommand = new RelayCommand(ToggleSelectedTask, () => _queue.IsRunning || SelectedTask is not null);
-        DeleteTaskCommand = new RelayCommand(DeleteTask, () => SelectedTask is not null && !_queue.IsRunning);
-        DuplicateTaskCommand = new RelayCommand(DuplicateTask, () => SelectedTask is not null && !_queue.IsRunning);
+        _screenManager.StateChanged += _ => Application.Current.Dispatcher.Invoke(() =>
+        {
+            OnPropertyChanged(nameof(ScreenState));
+            OnPropertyChanged(nameof(ScreenStateText));
+        });
+        _launchCoordinator.BusyChanged += _ => Application.Current.Dispatcher.Invoke(() =>
+        {
+            OnPropertyChanged(nameof(ManualActionText));
+            RaiseCommandStates();
+        });
+        ToggleExecutionCommand = new RelayCommand(ToggleSelectedTask, () => _launchCoordinator.IsBusy || SelectedTask is not null);
+        DeleteTaskCommand = new RelayCommand(DeleteTask, () => SelectedTask is not null && !_launchCoordinator.IsBusy);
+        DuplicateTaskCommand = new RelayCommand(DuplicateTask, () => SelectedTask is not null && !_launchCoordinator.IsBusy);
         AddRuleCommand = new RelayCommand(() => SelectedTask?.ProcessRules.Add(new ProcessRule { ProcessName = "Process.exe" }));
         DeleteRuleCommand = new RelayCommand(() => { if (SelectedTask?.ProcessRules.Count > 0) SelectedTask.ProcessRules.RemoveAt(SelectedTask.ProcessRules.Count - 1); });
         MoveUpCommand = new RelayCommand(() => MoveSelected(-1));
         MoveDownCommand = new RelayCommand(() => MoveSelected(1));
         OpenLogsCommand = new RelayCommand(OpenLogs);
-        ResetTaskCommand = new AsyncRelayCommand(ResetSelectedTaskAsync, () => SelectedTask is not null && !_queue.IsRunning);
-        ImportToolsCommand = new AsyncRelayCommand(ApplyKnownToolsAsync, () => !_queue.IsRunning);
+        ResetTaskCommand = new AsyncRelayCommand(ResetSelectedTaskAsync, () => SelectedTask is not null && !_launchCoordinator.IsBusy);
+        ImportToolsCommand = new AsyncRelayCommand(ApplyKnownToolsAsync, () => !_launchCoordinator.IsBusy);
         _uiTimer = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Background, (_, _) => TickUi(), Application.Current.Dispatcher);
     }
 
@@ -120,31 +187,43 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         _config = await _configService.LoadAsync();
         _config.ExecutionMode = QueueExecutionMode.Sequential;
+        _config.IdleTimeoutMinutes = Math.Clamp(_config.IdleTimeoutMinutes, 1, 1440);
+        _config.WakeBeforeTaskSeconds = Math.Clamp(_config.WakeBeforeTaskSeconds, 0, 3600);
+        _screenManager.Enabled = _config.EnableScreenManager;
+        _screenManager.IdleTimeout = TimeSpan.FromMinutes(_config.IdleTimeoutMinutes);
         _log.FileLoggingEnabled = _config.GenerateExecutionLog;
         Tasks.CollectionChanged += (_, _) => RefreshTaskIndexes();
         RefreshTaskIndexes();
         OnPropertyChanged(nameof(Tasks)); OnPropertyChanged(nameof(TaskIntervalSeconds)); OnPropertyChanged(nameof(FailurePolicy)); OnPropertyChanged(nameof(ShowCompletionNotification)); OnPropertyChanged(nameof(GenerateExecutionLog));
+        OnPropertyChanged(nameof(EnableScreenManager)); OnPropertyChanged(nameof(IdleTimeoutMinutes)); OnPropertyChanged(nameof(WakeBeforeTaskSeconds)); OnPropertyChanged(nameof(AutoBlackoutAfterTask));
         SelectedTask = Tasks.FirstOrDefault();
-        _scheduler.Start(() => Tasks.ToList(), RunScheduledTasksAsync);
+        _screenManager.StartMonitoring();
+        _scheduler.Start(() => Tasks.ToList(), () => _config.WakeBeforeTaskSeconds, RunScheduledTasksAsync);
         OnPropertyChanged(nameof(NextRunText));
         await _log.WriteAsync(LogLevel.Info, $"程序启动，已加载任务队列（{Tasks.Count} 项）");
     }
     public Task SaveAsync() => _configService.SaveAsync(_config);
+    public Task<bool> EnterBlackoutAsync() => _screenManager.EnterBlackoutAsync();
+    public Task ExitBlackoutAsync() => _screenManager.ExitBlackoutAsync();
     public void Reorder(AutomationTaskConfig source, AutomationTaskConfig target)
     {
-        if (_queue.IsRunning || source == target) return;
+        if (_launchCoordinator.IsBusy || source == target) return;
         var oldIndex = Tasks.IndexOf(source); var newIndex = Tasks.IndexOf(target);
         if (oldIndex >= 0 && newIndex >= 0) Tasks.Move(oldIndex, newIndex);
     }
     private async void ToggleSelectedTask()
     {
-        if (_queue.IsRunning)
+        if (_launchCoordinator.IsBusy)
         {
-            _queue.Stop();
+            _launchCoordinator.Stop();
             return;
         }
 
         try { await RunSingleTaskAsync(); }
+        catch (OperationCanceledException)
+        {
+            await _log.WriteAsync(LogLevel.Warning, "任务启动已取消");
+        }
         catch (Exception ex)
         {
             await _log.WriteAsync(LogLevel.Error, $"启动任务失败：{ex.Message}");
@@ -155,19 +234,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         if (SelectedTask is null) { ValidationFailed?.Invoke("请先选择一个任务。"); return; }
         if (!await ValidateBeforeRunAsync([SelectedTask])) return;
-        await _queue.RunSingleAsync(SelectedTask, FailurePolicy);
+        await _launchCoordinator.RunSingleAsync(SelectedTask, FailurePolicy);
         RaiseCommandStates();
     }
-    private async Task RunScheduledTasksAsync(IReadOnlyList<AutomationTaskConfig> anchors)
+    private async Task RunScheduledTasksAsync(ScheduledLaunchBatch batch)
     {
-        if (_queue.IsRunning)
-        {
-            await _log.WriteAsync(LogLevel.Warning, $"定时任务到点但已有任务运行，已跳过：{string.Join("、", anchors.Select(task => task.Name))}");
-            return;
-        }
-
         var scheduled = new List<AutomationTaskConfig>();
-        foreach (var anchor in anchors.OrderBy(task => Tasks.IndexOf(task)))
+        foreach (var anchor in batch.Anchors.OrderBy(task => Tasks.IndexOf(task)))
         {
             if (scheduled.Contains(anchor)) continue;
             var index = Tasks.IndexOf(anchor);
@@ -182,8 +255,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
 
         if (!await ValidateBeforeRunAsync(scheduled)) return;
-        await _log.WriteAsync(LogLevel.Info, $"定时启动：{string.Join(" → ", scheduled.Select(task => task.Name))}");
-        await _queue.RunAsync(scheduled, TaskIntervalSeconds, FailurePolicy);
+        await _log.WriteAsync(LogLevel.Info, $"定时任务准备：{string.Join(" → ", scheduled.Select(task => task.Name))}；PrepareAt={batch.PrepareAt:HH:mm:ss}，LaunchAt={batch.ScheduledAt:HH:mm:ss}");
+        await _launchCoordinator.RunAsync(scheduled, batch.ScheduledAt, TaskIntervalSeconds, FailurePolicy);
         RaiseCommandStates();
     }
     private async Task<bool> ValidateBeforeRunAsync(IReadOnlyList<AutomationTaskConfig> tasks)
@@ -206,7 +279,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void DuplicateTask()
     {
         if (SelectedTask is null) return;
-        var copy = new AutomationTaskConfig { Name = SelectedTask.Name + " 副本", ProgramPath = SelectedTask.ProgramPath, Arguments = SelectedTask.Arguments, WorkingDirectory = SelectedTask.WorkingDirectory, CompletionMode = SelectedTask.CompletionMode, CompletionProcessName = SelectedTask.CompletionProcessName, CompletionLogPath = SelectedTask.CompletionLogPath, CompletionKeyword = SelectedTask.CompletionKeyword, CompletionFailureKeyword = SelectedTask.CompletionFailureKeyword, MaxRunMinutes = SelectedTask.MaxRunMinutes, CleanupWaitSeconds = SelectedTask.CleanupWaitSeconds, CleanupRetries = SelectedTask.CleanupRetries, TrackChildren = SelectedTask.TrackChildren, UseJobObject = SelectedTask.UseJobObject, RunAsAdministrator = SelectedTask.RunAsAdministrator, ScheduledStartTime = SelectedTask.ScheduledStartTime, CompletionAction = SelectedTask.CompletionAction };
+        var copy = new AutomationTaskConfig { Name = SelectedTask.Name + " 副本", ProgramPath = SelectedTask.ProgramPath, Arguments = SelectedTask.Arguments, WorkingDirectory = SelectedTask.WorkingDirectory, CompletionMode = SelectedTask.CompletionMode, CompletionProcessName = SelectedTask.CompletionProcessName, CompletionLogPath = SelectedTask.CompletionLogPath, CompletionKeyword = SelectedTask.CompletionKeyword, CompletionFailureKeyword = SelectedTask.CompletionFailureKeyword, MaxRunMinutes = SelectedTask.MaxRunMinutes, CleanupWaitSeconds = SelectedTask.CleanupWaitSeconds, CleanupRetries = SelectedTask.CleanupRetries, TrackChildren = SelectedTask.TrackChildren, UseJobObject = SelectedTask.UseJobObject, RunAsAdministrator = SelectedTask.RunAsAdministrator, ScheduledStartTime = SelectedTask.ScheduledStartTime, WakeBeforeTaskSeconds = SelectedTask.WakeBeforeTaskSeconds, CompletionAction = SelectedTask.CompletionAction };
         foreach (var rule in SelectedTask.ProcessRules) copy.ProcessRules.Add(new ProcessRule { ProcessName = rule.ProcessName, ExecutablePath = rule.ExecutablePath, ExecutableDirectory = rule.ExecutableDirectory, Monitor = rule.Monitor, Cleanup = rule.Cleanup, AllowNameFallback = rule.AllowNameFallback });
         Tasks.Insert(Tasks.IndexOf(SelectedTask) + 1, copy); SelectedTask = copy;
     }
@@ -252,7 +325,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public IReadOnlyList<AutomationTaskConfig> DiscoverKnownTools() => _toolProfiles.Discover();
     public async Task<bool> AddKnownToolAsync(AutomationTaskConfig profile)
     {
-        if (_queue.IsRunning) return false;
+        if (_launchCoordinator.IsBusy) return false;
         Tasks.Add(profile);
         SelectedTask = profile;
         await SaveAsync();
@@ -294,4 +367,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
     private void OpenLogs() { Directory.CreateDirectory(_log.LogDirectory); Process.Start(new ProcessStartInfo("explorer.exe", _log.LogDirectory) { UseShellExecute = true }); }
     public void Dispose() { _scheduler.Dispose(); _uiTimer.Stop(); }
+    public async Task ShutdownAsync()
+    {
+        await _launchCoordinator.DisposeAsync();
+        await SaveAsync();
+        Dispose();
+        await _screenManager.DisposeAsync();
+    }
 }

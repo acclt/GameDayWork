@@ -25,6 +25,7 @@ public sealed class AutomationTaskConfig : ObservableObject
     private TaskCompletionAction _completionAction = TaskCompletionAction.RunNext;
     private TaskRunStatus _status = TaskRunStatus.Idle;
     private int _displayIndex;
+    private int? _wakeBeforeTaskSeconds;
 
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Name
@@ -73,6 +74,12 @@ public sealed class AutomationTaskConfig : ObservableObject
         {
             if (SetProperty(ref _scheduledStartTime, value?.Trim() ?? "")) OnPropertyChanged(nameof(NextExecutionText));
         }
+    }
+    [JsonPropertyName("wakeBeforeTaskSeconds")]
+    public int? WakeBeforeTaskSeconds
+    {
+        get => _wakeBeforeTaskSeconds;
+        set => SetProperty(ref _wakeBeforeTaskSeconds, value is null ? null : Math.Clamp(value.Value, 0, 3600));
     }
     public TaskCompletionAction CompletionAction { get => _completionAction; set => SetProperty(ref _completionAction, value); }
     public bool TrackChildren { get; set; } = true;
@@ -150,4 +157,12 @@ public sealed class AppConfig
     public bool GenerateExecutionLog { get; set; } = true;
     public ScheduleConfig Schedule { get; set; } = new();
     public NotificationConfig Notifications { get; set; } = new();
+    [JsonPropertyName("enableScreenManager")]
+    public bool EnableScreenManager { get; set; } = true;
+    [JsonPropertyName("idleTimeoutMinutes")]
+    public int IdleTimeoutMinutes { get; set; } = 30;
+    [JsonPropertyName("wakeBeforeTaskSeconds")]
+    public int WakeBeforeTaskSeconds { get; set; } = 30;
+    [JsonPropertyName("autoBlackoutAfterTask")]
+    public bool AutoBlackoutAfterTask { get; set; } = true;
 }
