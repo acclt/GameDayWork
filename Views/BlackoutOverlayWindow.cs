@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using Forms = System.Windows.Forms;
@@ -9,6 +10,8 @@ namespace GameOrchestrator.Views;
 internal sealed class BlackoutOverlayWindow : Window
 {
     private const int GwlExStyle = -20;
+    private const int WmSetCursor = 0x0020;
+    private const int IdcArrow = 32512;
     private const long WsExTopmost = 0x00000008L;
     private const long WsExToolWindow = 0x00000080L;
     private const long WsExNoActivate = 0x08000000L;
@@ -19,6 +22,7 @@ internal sealed class BlackoutOverlayWindow : Window
     private readonly Forms.Screen _screen;
     private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private nint _handle;
+    private HwndSource? _source;
 
     public BlackoutOverlayWindow(Forms.Screen screen)
     {
@@ -31,9 +35,10 @@ internal sealed class BlackoutOverlayWindow : Window
         Focusable = false;
         Topmost = true;
         Background = Brushes.Black;
+        Cursor = Cursors.None;
         AllowsTransparency = false;
         SourceInitialized += OnSourceInitialized;
-        Closed += (_, _) => _closed.TrySetResult();
+        Closed += OnClosed;
     }
 
     public nint Handle => _handle;
@@ -42,6 +47,9 @@ internal sealed class BlackoutOverlayWindow : Window
     private void OnSourceInitialized(object? sender, EventArgs e)
     {
         _handle = new WindowInteropHelper(this).Handle;
+        _source = HwndSource.FromHwnd(_handle);
+        _source?.AddHook(WindowProc);
+        SetCursor(nint.Zero);
         var style = GetWindowLongPtr(_handle, GwlExStyle).ToInt64();
         style |= WsExTopmost | WsExNoActivate | WsExToolWindow;
         SetWindowLongPtr(_handle, GwlExStyle, new nint(style));
@@ -53,6 +61,26 @@ internal sealed class BlackoutOverlayWindow : Window
         if (_handle == nint.Zero) return;
         var bounds = _screen.Bounds;
         SetWindowPos(_handle, HwndTopmost, bounds.X, bounds.Y, bounds.Width, bounds.Height, SwpNoActivate | SwpShowWindow);
+    }
+
+    private nint WindowProc(nint hwnd, int msg, nint wParam, nint lParam, ref bool handled)
+    {
+        if (msg != WmSetCursor) return nint.Zero;
+
+        SetCursor(nint.Zero);
+        handled = true;
+        return new nint(1);
+    }
+
+    private void OnClosed(object? sender, EventArgs e)
+    {
+        _source?.RemoveHook(WindowProc);
+        _source = null;
+
+        var arrow = LoadCursor(nint.Zero, new nint(IdcArrow));
+        if (arrow != nint.Zero) SetCursor(arrow);
+
+        _closed.TrySetResult();
     }
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
@@ -76,4 +104,10 @@ internal sealed class BlackoutOverlayWindow : Window
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetWindowPos(nint hWnd, nint hWndInsertAfter, int x, int y, int width, int height, uint flags);
+
+    [DllImport("user32.dll")]
+    private static extern nint SetCursor(nint cursor);
+
+    [DllImport("user32.dll", EntryPoint = "LoadCursorW")]
+    private static extern nint LoadCursor(nint instance, nint cursorName);
 }

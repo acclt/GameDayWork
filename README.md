@@ -45,7 +45,7 @@ dotnet run --project .\tests\GameOrchestrator.SmokeTests\GameOrchestrator.SmokeT
 发布 Windows x64 便携包：
 
 ```powershell
-.\scripts\Publish-Portable.ps1 -Version 0.3.0
+.\scripts\Publish-Portable.ps1 -Version 0.3.1
 ```
 
 配置位于 `data/config.json`，日志位于 `logs/yyyy-MM-dd.log`。进程规则默认禁止按名称兜底，避免误杀同名进程。
