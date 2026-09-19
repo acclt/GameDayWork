@@ -87,7 +87,7 @@ public partial class MainWindow : Window
     private async Task RunTrayActionAsync(Func<Task<bool>> action)
     {
         try { await action(); }
-        catch (Exception ex) { MessageBox.Show(ex.Message, "Screen Manager", MessageBoxButton.OK, MessageBoxImage.Error); }
+        catch (Exception ex) { MessageBox.Show(ex.Message, "息屏管理器", MessageBoxButton.OK, MessageBoxImage.Error); }
     }
 
     private async Task ExitApplicationAsync()

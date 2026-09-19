@@ -18,6 +18,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly TaskValidationService _validator = new();
     private readonly KnownToolProfileService _toolProfiles = new();
     private readonly TaskQueueService _queue;
+    private readonly BrightnessManager _brightnessManager;
     private readonly ScreenManager _screenManager;
     private readonly TaskLaunchCoordinator _launchCoordinator;
     private readonly WeComNotificationService _notificationService;
@@ -114,16 +115,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             OnPropertyChanged();
         }
     }
-    public bool AutoBlackoutAfterTask
-    {
-        get => _config.AutoBlackoutAfterTask;
-        set
-        {
-            if (_config.AutoBlackoutAfterTask == value) return;
-            _config.AutoBlackoutAfterTask = value;
-            OnPropertyChanged();
-        }
-    }
     public Array FailurePolicies => Enum.GetValues(typeof(FailurePolicy));
     public Array CompletionModes => Enum.GetValues(typeof(CompletionDetectionMode));
     public Array CompletionActions => Enum.GetValues(typeof(TaskCompletionAction));
@@ -174,9 +165,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var cleanup = new ProcessCleanupService(monitor, _log);
         _notificationService = new WeComNotificationService(bus, () => _config.Notifications, _log);
         var runner = new TaskRunnerService(monitor, cleanup, _log, bus);
-        _screenManager = new ScreenManager(_log);
+        _brightnessManager = new BrightnessManager(_log);
+        _screenManager = new ScreenManager(_log, _brightnessManager);
         _queue = new TaskQueueService(runner, _log, bus);
-        _launchCoordinator = new TaskLaunchCoordinator(_screenManager, _queue, _log, () => _config.AutoBlackoutAfterTask);
+        _launchCoordinator = new TaskLaunchCoordinator(_screenManager, _queue, _log);
         _scheduler.Error += ex => _ = _log.WriteAsync(LogLevel.Error, $"定时任务执行异常：{ex.Message}");
         runner.SessionChanged += session => Application.Current.Dispatcher.Invoke(() => CurrentSession = session);
         _log.EntryWritten += entry => Application.Current.Dispatcher.Invoke(() => { Logs.Add(entry); if (Logs.Count > 2000) Logs.RemoveAt(0); OnPropertyChanged(nameof(RecentEvent)); });
@@ -210,15 +202,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _config.Notifications ??= new NotificationConfig();
         _config.Notifications.Enabled = !string.IsNullOrWhiteSpace(_config.Notifications.WeComWebhookUrl);
         _config.ExecutionMode = QueueExecutionMode.Sequential;
+        _config.AutoBlackoutAfterTask = false;
         _config.IdleTimeoutMinutes = Math.Clamp(_config.IdleTimeoutMinutes, 1, 1440);
         _config.WakeBeforeTaskSeconds = Math.Clamp(_config.WakeBeforeTaskSeconds, 0, 3600);
         _screenManager.Enabled = _config.EnableScreenManager;
         _screenManager.IdleTimeout = TimeSpan.FromMinutes(_config.IdleTimeoutMinutes);
         _log.FileLoggingEnabled = _config.GenerateExecutionLog;
+        await _screenManager.RecoverDisplayStateAsync();
         Tasks.CollectionChanged += (_, _) => RefreshTaskIndexes();
         RefreshTaskIndexes();
         OnPropertyChanged(nameof(Tasks)); OnPropertyChanged(nameof(TaskIntervalSeconds)); OnPropertyChanged(nameof(FailurePolicy)); OnPropertyChanged(nameof(GenerateExecutionLog));
-        OnPropertyChanged(nameof(EnableScreenManager)); OnPropertyChanged(nameof(IdleTimeoutMinutes)); OnPropertyChanged(nameof(WakeBeforeTaskSeconds)); OnPropertyChanged(nameof(AutoBlackoutAfterTask));
+        OnPropertyChanged(nameof(EnableScreenManager)); OnPropertyChanged(nameof(IdleTimeoutMinutes)); OnPropertyChanged(nameof(WakeBeforeTaskSeconds));
         OnPropertyChanged(nameof(WeComWebhookUrl)); OnPropertyChanged(nameof(NotifyOnStart)); OnPropertyChanged(nameof(NotifyOnComplete)); OnPropertyChanged(nameof(NotifyOnFailure)); OnPropertyChanged(nameof(NotifyOnForcedStop));
         SelectedTask = Tasks.FirstOrDefault();
         _screenManager.StartMonitoring();

@@ -7,7 +7,6 @@ public sealed class TaskLaunchCoordinator : IAsyncDisposable
     private readonly ScreenManager _screenManager;
     private readonly TaskQueueService _queue;
     private readonly LoggingService _log;
-    private readonly Func<bool> _autoBlackoutAfterTask;
     private readonly SemaphoreSlim _serialGate = new(1, 1);
     private readonly CancellationTokenSource _shutdown = new();
     private CancellationTokenSource? _activeRun;
@@ -19,13 +18,11 @@ public sealed class TaskLaunchCoordinator : IAsyncDisposable
     public TaskLaunchCoordinator(
         ScreenManager screenManager,
         TaskQueueService queue,
-        LoggingService log,
-        Func<bool> autoBlackoutAfterTask)
+        LoggingService log)
     {
         _screenManager = screenManager;
         _queue = queue;
         _log = log;
-        _autoBlackoutAfterTask = autoBlackoutAfterTask;
     }
 
     public Task RunSingleAsync(AutomationTaskConfig task, FailurePolicy policy, CancellationToken token = default) =>
@@ -77,8 +74,7 @@ public sealed class TaskLaunchCoordinator : IAsyncDisposable
                 _activeRun = null;
                 try
                 {
-                    var enterBlackout = !_shutdown.IsCancellationRequested && _screenManager.Enabled && _autoBlackoutAfterTask();
-                    await _screenManager.CompleteTaskChainAsync(enterBlackout, CancellationToken.None);
+                    await _screenManager.CompleteTaskChainAsync(CancellationToken.None);
                 }
                 finally
                 {

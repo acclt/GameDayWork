@@ -11,7 +11,6 @@ internal sealed class BlackoutOverlayWindow : Window
 {
     private const int GwlExStyle = -20;
     private const int WmSetCursor = 0x0020;
-    private const int IdcArrow = 32512;
     private const long WsExTopmost = 0x00000008L;
     private const long WsExToolWindow = 0x00000080L;
     private const long WsExNoActivate = 0x08000000L;
@@ -36,6 +35,7 @@ internal sealed class BlackoutOverlayWindow : Window
         Topmost = true;
         Background = Brushes.Black;
         Cursor = Cursors.None;
+        ForceCursor = true;
         AllowsTransparency = false;
         SourceInitialized += OnSourceInitialized;
         Closed += OnClosed;
@@ -76,10 +76,6 @@ internal sealed class BlackoutOverlayWindow : Window
     {
         _source?.RemoveHook(WindowProc);
         _source = null;
-
-        var arrow = LoadCursor(nint.Zero, new nint(IdcArrow));
-        if (arrow != nint.Zero) SetCursor(arrow);
-
         _closed.TrySetResult();
     }
 
@@ -108,6 +104,4 @@ internal sealed class BlackoutOverlayWindow : Window
     [DllImport("user32.dll")]
     private static extern nint SetCursor(nint cursor);
 
-    [DllImport("user32.dll", EntryPoint = "LoadCursorW")]
-    private static extern nint LoadCursor(nint instance, nint cursorName);
 }

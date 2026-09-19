@@ -14,8 +14,8 @@
         <TabItem Header="屏幕管理">
           <ScrollViewer VerticalScrollBarVisibility="Auto">
             <StackPanel Margin="12,18">
-              <TextBlock Text="Screen Manager" FontSize="20" FontWeight="SemiBold" Foreground="#0B1735" />
-              <TextBlock Text="使用每台显示器一个纯黑 Overlay 模拟息屏，不修改 Windows 电源计划。" Foreground="#6D7F9D" Margin="0,6,0,18" TextWrapping="Wrap" />
+              <TextBlock Text="息屏管理器" FontSize="20" FontWeight="SemiBold" Foreground="#0B1735" />
+              <TextBlock Text="记录显示器亮度并降至最低，再使用纯黑遮罩模拟息屏；解除遮罩时恢复原亮度。" Foreground="#6D7F9D" Margin="0,6,0,18" TextWrapping="Wrap" />
 
               <CheckBox Content="启用空闲假息屏" IsChecked="{Binding EnableScreenManager}" FontWeight="SemiBold" />
 
@@ -41,7 +41,9 @@
                 <TextBlock Grid.Column="2" Text="秒（0–3600）" Foreground="#6D7F9D" VerticalAlignment="Center" Margin="12,0,0,0" />
               </Grid>
 
-              <CheckBox Content="整条任务链结束后自动进入假息屏" IsChecked="{Binding AutoBlackoutAfterTask}" Margin="0,18,0,0" />
+              <Border Background="#EDF4FF" CornerRadius="8" Padding="14" Margin="0,18,0,0">
+                <TextBlock Text="任务链结束后返回空闲监控；只有再次连续达到空闲超时时间，才会进入假息屏。" TextWrapping="Wrap" Foreground="#355179" />
+              </Border>
 
               <Border Background="#FFF7E8" CornerRadius="8" Padding="14" Margin="0,22,0,0">
                 <TextBlock Text="请在 Windows 中手动将“关闭显示器”和“睡眠”设置为“从不”。任务准备及运行期间禁止重新黑屏。" TextWrapping="Wrap" Foreground="#805B19" />

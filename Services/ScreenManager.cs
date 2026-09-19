@@ -11,6 +11,7 @@ public sealed class ScreenManager : IAsyncDisposable
 {
     private static readonly TimeSpan VisualStabilityDelay = TimeSpan.FromMilliseconds(400);
     private readonly LoggingService _log;
+    private readonly BrightnessManager _brightness;
     private readonly SemaphoreSlim _transitionGate = new(1, 1);
     private readonly List<BlackoutOverlayWindow> _overlays = [];
     private readonly System.Windows.Threading.DispatcherTimer _inputTimer;
@@ -20,15 +21,17 @@ public sealed class ScreenManager : IAsyncDisposable
     private uint _blackoutInputTick;
     private uint _idleMonitoringSinceTick;
     private DateTimeOffset _readyAfter = DateTimeOffset.MinValue;
+    private int _cursorHideAdjustments;
 
     public ScreenManagerState State { get; private set; } = ScreenManagerState.IdleMonitoring;
     public bool Enabled { get; set; } = true;
     public TimeSpan IdleTimeout { get; set; } = TimeSpan.FromMinutes(30);
     public event Action<ScreenManagerState>? StateChanged;
 
-    public ScreenManager(LoggingService log)
+    public ScreenManager(LoggingService log, BrightnessManager brightness)
     {
         _log = log;
+        _brightness = brightness;
         _inputTimer = new System.Windows.Threading.DispatcherTimer(
             TimeSpan.FromMilliseconds(500),
             System.Windows.Threading.DispatcherPriority.Background,
@@ -36,6 +39,8 @@ public sealed class ScreenManager : IAsyncDisposable
             Application.Current.Dispatcher);
         SystemEvents.DisplaySettingsChanged += DisplaySettingsChanged;
     }
+
+    public Task RecoverDisplayStateAsync(CancellationToken token = default) => _brightness.RecoverPendingAsync(token);
 
     public void StartMonitoring()
     {
@@ -64,6 +69,7 @@ public sealed class ScreenManager : IAsyncDisposable
                 return false;
             }
 
+            await _brightness.DimForBlackoutAsync(token);
             await ShowOverlaysAsync();
             _blackoutInputTick = GetLastInputTick();
             await SetStateAsync(ScreenManagerState.Blackout, "已进入假息屏");
@@ -144,31 +150,13 @@ public sealed class ScreenManager : IAsyncDisposable
         }
     }
 
-    public async Task CompleteTaskChainAsync(bool enterBlackout, CancellationToken token = default)
+    public async Task CompleteTaskChainAsync(CancellationToken token = default)
     {
         await _transitionGate.WaitAsync(token);
         try
         {
             ThrowIfDisposed();
-            if (enterBlackout)
-            {
-                try
-                {
-                    await ShowOverlaysAsync();
-                    _blackoutInputTick = GetLastInputTick();
-                    await SetStateAsync(ScreenManagerState.Blackout, "任务链结束，已进入假息屏");
-                }
-                catch
-                {
-                    await CloseOverlaysCoreAsync(CancellationToken.None);
-                    await SetStateAsync(ScreenManagerState.IdleMonitoring, "任务链结束，但创建假息屏窗口失败");
-                    throw;
-                }
-            }
-            else
-            {
-                await SetStateAsync(ScreenManagerState.IdleMonitoring, "任务链结束，恢复空闲监控");
-            }
+            await SetStateAsync(ScreenManagerState.IdleMonitoring, "任务链结束，恢复空闲监控并重新计算空闲时间");
         }
         finally
         {
@@ -186,13 +174,20 @@ public sealed class ScreenManager : IAsyncDisposable
             overlay.PlaceOverMonitor();
             _overlays.Add(overlay);
         }
+        HideCursorCore();
         return Task.CompletedTask;
     }
 
-    private async Task CloseOverlaysCoreAsync(CancellationToken token, bool waitForVisualStability = true)
+    private async Task CloseOverlaysCoreAsync(
+        CancellationToken token,
+        bool waitForVisualStability = true,
+        bool restoreDisplayState = true)
     {
+        if (restoreDisplayState) await _brightness.RestoreAsync(CancellationToken.None);
+
         if (_overlays.Count == 0)
         {
+            if (restoreDisplayState) RestoreCursorCore();
             if (!waitForVisualStability) return;
             var existingDelay = _readyAfter - DateTimeOffset.Now;
             if (existingDelay > TimeSpan.Zero) await Task.Delay(existingDelay, token);
@@ -201,13 +196,20 @@ public sealed class ScreenManager : IAsyncDisposable
 
         var closing = _overlays.ToArray();
         _overlays.Clear();
-        foreach (var overlay in closing) overlay.Close();
-        await Task.WhenAll(closing.Select(window => window.ClosedTask)).WaitAsync(token);
-
-        foreach (var overlay in closing)
+        try
         {
-            while (overlay.Handle != nint.Zero && IsWindow(overlay.Handle))
-                await Task.Delay(10, token);
+            foreach (var overlay in closing) overlay.Close();
+            await Task.WhenAll(closing.Select(window => window.ClosedTask)).WaitAsync(token);
+
+            foreach (var overlay in closing)
+            {
+                while (overlay.Handle != nint.Zero && IsWindow(overlay.Handle))
+                    await Task.Delay(10, token);
+            }
+        }
+        finally
+        {
+            if (restoreDisplayState) RestoreCursorCore();
         }
 
         if (!waitForVisualStability) return;
@@ -284,12 +286,16 @@ public sealed class ScreenManager : IAsyncDisposable
         try
         {
             if (_disposed || State != ScreenManagerState.Blackout) return;
-            await CloseOverlaysCoreAsync(CancellationToken.None, waitForVisualStability: false);
+            await CloseOverlaysCoreAsync(CancellationToken.None, waitForVisualStability: false, restoreDisplayState: false);
+            await _brightness.DimForBlackoutAsync(CancellationToken.None);
             await ShowOverlaysAsync();
             await _log.WriteAsync(LogLevel.Info, $"显示器配置变化，已重建 {_overlays.Count} 个假息屏窗口");
         }
         catch (Exception ex)
         {
+            await CloseOverlaysCoreAsync(CancellationToken.None, waitForVisualStability: false);
+            if (!_disposed && State == ScreenManagerState.Blackout)
+                await SetStateAsync(ScreenManagerState.IdleMonitoring, "显示器配置变化后重建假息屏失败，已恢复显示");
             await _log.WriteAsync(LogLevel.Error, $"重建假息屏窗口失败：{ex.Message}");
         }
         finally
@@ -331,4 +337,40 @@ public sealed class ScreenManager : IAsyncDisposable
 
     [DllImport("dwmapi.dll", PreserveSig = true)]
     private static extern int DwmFlush();
+
+    private void HideCursorCore()
+    {
+        if (_cursorHideAdjustments > 0) return;
+
+        var adjustments = 0;
+        int displayCount;
+        do
+        {
+            displayCount = ShowCursor(false);
+            adjustments++;
+        }
+        while (displayCount >= 0 && adjustments < 64);
+
+        _cursorHideAdjustments = adjustments;
+        SetCursor(nint.Zero);
+    }
+
+    private void RestoreCursorCore()
+    {
+        if (_cursorHideAdjustments == 0) return;
+        for (var index = 0; index < _cursorHideAdjustments; index++) ShowCursor(true);
+        _cursorHideAdjustments = 0;
+
+        var arrow = LoadCursor(nint.Zero, new nint(32512));
+        if (arrow != nint.Zero) SetCursor(arrow);
+    }
+
+    [DllImport("user32.dll")]
+    private static extern int ShowCursor([MarshalAs(UnmanagedType.Bool)] bool show);
+
+    [DllImport("user32.dll")]
+    private static extern nint SetCursor(nint cursor);
+
+    [DllImport("user32.dll", EntryPoint = "LoadCursorW")]
+    private static extern nint LoadCursor(nint instance, nint cursorName);
 }

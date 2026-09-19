@@ -9,6 +9,8 @@ var validator = new TaskValidationService();
 var failures = new List<string>();
 void Assert(bool condition, string message) { if (!condition) failures.Add(message); }
 
+Assert(!new AppConfig().AutoBlackoutAfterTask, "任务链结束后应返回空闲监控，不应立即进入假息屏");
+
 var empty = new AutomationTaskConfig { Name = "测试任务" };
 Assert(validator.Validate([empty]).Any(x => x.Message.Contains("程序路径")), "空程序路径应校验失败");
 

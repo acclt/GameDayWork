@@ -168,5 +168,5 @@ public sealed class AppConfig
     [JsonPropertyName("wakeBeforeTaskSeconds")]
     public int WakeBeforeTaskSeconds { get; set; } = 30;
     [JsonPropertyName("autoBlackoutAfterTask")]
-    public bool AutoBlackoutAfterTask { get; set; } = true;
+    public bool AutoBlackoutAfterTask { get; set; }
 }

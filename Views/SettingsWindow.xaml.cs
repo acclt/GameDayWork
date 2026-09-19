@@ -10,7 +10,6 @@ public partial class SettingsWindow : Window
         bool EnableScreenManager,
         int IdleTimeoutMinutes,
         int WakeBeforeTaskSeconds,
-        bool AutoBlackoutAfterTask,
         string WeComWebhookUrl,
         bool NotifyOnStart,
         bool NotifyOnComplete,
@@ -31,7 +30,6 @@ public partial class SettingsWindow : Window
             viewModel.EnableScreenManager,
             viewModel.IdleTimeoutMinutes,
             viewModel.WakeBeforeTaskSeconds,
-            viewModel.AutoBlackoutAfterTask,
             viewModel.WeComWebhookUrl,
             viewModel.NotifyOnStart,
             viewModel.NotifyOnComplete,
@@ -92,7 +90,6 @@ public partial class SettingsWindow : Window
         _viewModel.EnableScreenManager = _snapshot.EnableScreenManager;
         _viewModel.IdleTimeoutMinutes = _snapshot.IdleTimeoutMinutes;
         _viewModel.WakeBeforeTaskSeconds = _snapshot.WakeBeforeTaskSeconds;
-        _viewModel.AutoBlackoutAfterTask = _snapshot.AutoBlackoutAfterTask;
         _viewModel.WeComWebhookUrl = _snapshot.WeComWebhookUrl;
         _viewModel.NotifyOnStart = _snapshot.NotifyOnStart;
         _viewModel.NotifyOnComplete = _snapshot.NotifyOnComplete;
