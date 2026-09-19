@@ -7,13 +7,13 @@ GameDayWork 仅发布 Windows x64 便携版，不制作安装程序，也不写�
 需要 .NET 8 SDK。在仓库根目录执行：
 
 ```powershell
-.\scripts\Publish-Portable.ps1 -Version 0.3.2
+.\scripts\Publish-Portable.ps1 -Version 0.3.3
 ```
 
 产物为：
 
 ```text
-artifacts/GameDayWork-v0.3.2-win-x64-portable.zip
+artifacts/GameDayWork-v0.3.3-win-x64-portable.zip
 ```
 
 ## GitHub Releases
@@ -21,8 +21,8 @@ artifacts/GameDayWork-v0.3.2-win-x64-portable.zip
 推送符合 `vX.Y.Z` 格式的标签后，`.github/workflows/release.yml` 会构建同名便携包并创建 GitHub Release：
 
 ```powershell
-git tag v0.3.2
-git push origin v0.3.2
+git tag v0.3.3
+git push origin v0.3.3
 ```
 
 创建标签前，应先完成下方人工检查，且不要使用真实五项目做自动化试跑。
@@ -35,7 +35,8 @@ git push origin v0.3.2
 4. 在黑屏时插拔显示器或调整显示布局，确认 Overlay 自动重建并覆盖所有屏幕。
 5. 将一个无副作用测试程序设为短时定时任务，确认日志先记录 `PrepareAt`，Overlay 完全退出后在 `LaunchAt` 启动。
 6. 用多个安全测试任务组成任务链，确认托盘状态在整条链期间持续为“执行任务”，结束后返回空闲监控，并在达到空闲超时后才重新黑屏。
-7. 托盘选择“退出程序”，确认进程退出；普通关闭主窗口只应隐藏。
+7. 启用开机自启，确认当前用户“启动”文件夹生成 `GameDayWork 开机自启.lnk`，目标带有 `--startup`；取消后确认快捷方式删除。
+8. 托盘选择“退出程序”，确认进程退出；普通关闭主窗口只应隐藏。
 
 ## BGI 安全确认
 

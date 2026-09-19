@@ -1,4 +1,5 @@
 using System.Windows;
+using GameOrchestrator.Services;
 using GameOrchestrator.Views;
 
 namespace GameOrchestrator;
@@ -15,7 +16,8 @@ public partial class App : Application
         };
         try
         {
-            var window = new MainWindow();
+            var startMinimized = e.Args.Any(argument => argument.Equals(StartupService.StartupArgument, StringComparison.OrdinalIgnoreCase));
+            var window = new MainWindow(startMinimized);
             MainWindow = window;
             window.Show();
         }

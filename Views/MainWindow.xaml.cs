@@ -20,9 +20,17 @@ public partial class MainWindow : Window
     private Point _dragStart;
     private bool _exitRequested;
     private bool _initialized;
-    public MainWindow()
+    private readonly bool _startMinimized;
+    public MainWindow(bool startMinimized = false)
     {
+        _startMinimized = startMinimized;
         InitializeComponent(); DataContext = _viewModel;
+        if (_startMinimized)
+        {
+            ShowActivated = false;
+            ShowInTaskbar = false;
+            WindowState = WindowState.Minimized;
+        }
         _trayStatusItem = new Forms.ToolStripMenuItem("状态：空闲监控") { Enabled = false };
         _trayIcon = CreateTrayIcon();
         _viewModel.PropertyChanged += (_, e) =>
@@ -38,6 +46,13 @@ public partial class MainWindow : Window
             _viewModel.ValidationFailed += ShowValidationErrors;
             _viewModel.NoticeRequested += ShowNotice;
             WirePlaceholderControls();
+            if (_startMinimized)
+            {
+                Hide();
+                ShowInTaskbar = true;
+                WindowState = WindowState.Normal;
+                ShowActivated = true;
+            }
         };
         Closing += MainWindow_Closing;
     }

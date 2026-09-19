@@ -7,6 +7,7 @@ namespace GameOrchestrator.Views;
 public partial class SettingsWindow : Window
 {
     private sealed record SettingsSnapshot(
+        bool StartWithWindows,
         bool EnableScreenManager,
         int IdleTimeoutMinutes,
         int WakeBeforeTaskSeconds,
@@ -27,6 +28,7 @@ public partial class SettingsWindow : Window
         _viewModel = viewModel;
         DataContext = viewModel;
         _snapshot = new(
+            viewModel.StartWithWindows,
             viewModel.EnableScreenManager,
             viewModel.IdleTimeoutMinutes,
             viewModel.WakeBeforeTaskSeconds,
@@ -87,6 +89,7 @@ public partial class SettingsWindow : Window
     {
         if (_saved || _restored) return;
         _restored = true;
+        _viewModel.StartWithWindows = _snapshot.StartWithWindows;
         _viewModel.EnableScreenManager = _snapshot.EnableScreenManager;
         _viewModel.IdleTimeoutMinutes = _snapshot.IdleTimeoutMinutes;
         _viewModel.WakeBeforeTaskSeconds = _snapshot.WakeBeforeTaskSeconds;

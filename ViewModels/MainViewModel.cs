@@ -13,6 +13,7 @@ namespace GameOrchestrator.ViewModels;
 public sealed class MainViewModel : ObservableObject, IDisposable
 {
     private readonly ConfigService _configService = new();
+    private readonly StartupService _startupService = new();
     private readonly LoggingService _log = new();
     private readonly SchedulerService _scheduler = new();
     private readonly TaskValidationService _validator = new();
@@ -78,6 +79,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             _config.GenerateExecutionLog = value;
             _log.FileLoggingEnabled = value;
+            OnPropertyChanged();
+        }
+    }
+    public bool StartWithWindows
+    {
+        get => _config.StartWithWindows;
+        set
+        {
+            if (_config.StartWithWindows == value) return;
+            _config.StartWithWindows = value;
             OnPropertyChanged();
         }
     }
@@ -208,10 +219,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _screenManager.Enabled = _config.EnableScreenManager;
         _screenManager.IdleTimeout = TimeSpan.FromMinutes(_config.IdleTimeoutMinutes);
         _log.FileLoggingEnabled = _config.GenerateExecutionLog;
+        try { _startupService.Apply(_config.StartWithWindows); }
+        catch (Exception ex) { await _log.WriteAsync(LogLevel.Warning, $"同步开机启动项失败：{ex.Message}"); }
         await _screenManager.RecoverDisplayStateAsync();
         Tasks.CollectionChanged += (_, _) => RefreshTaskIndexes();
         RefreshTaskIndexes();
-        OnPropertyChanged(nameof(Tasks)); OnPropertyChanged(nameof(TaskIntervalSeconds)); OnPropertyChanged(nameof(FailurePolicy)); OnPropertyChanged(nameof(GenerateExecutionLog));
+        OnPropertyChanged(nameof(Tasks)); OnPropertyChanged(nameof(TaskIntervalSeconds)); OnPropertyChanged(nameof(FailurePolicy)); OnPropertyChanged(nameof(GenerateExecutionLog)); OnPropertyChanged(nameof(StartWithWindows));
         OnPropertyChanged(nameof(EnableScreenManager)); OnPropertyChanged(nameof(IdleTimeoutMinutes)); OnPropertyChanged(nameof(WakeBeforeTaskSeconds));
         OnPropertyChanged(nameof(WeComWebhookUrl)); OnPropertyChanged(nameof(NotifyOnStart)); OnPropertyChanged(nameof(NotifyOnComplete)); OnPropertyChanged(nameof(NotifyOnFailure)); OnPropertyChanged(nameof(NotifyOnForcedStop));
         SelectedTask = Tasks.FirstOrDefault();
@@ -220,7 +233,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(NextRunText));
         await _log.WriteAsync(LogLevel.Info, $"程序启动，已加载任务队列（{Tasks.Count} 项）");
     }
-    public Task SaveAsync() => _configService.SaveAsync(_config);
+    public Task SaveAsync()
+    {
+        _startupService.Apply(_config.StartWithWindows);
+        return _configService.SaveAsync(_config);
+    }
     public Task<NotificationTestResult> TestWeComNotificationAsync() => _notificationService.SendTestAsync();
     public Task<bool> EnterBlackoutAsync() => _screenManager.EnterBlackoutAsync();
     public Task ExitBlackoutAsync() => _screenManager.ExitBlackoutAsync();

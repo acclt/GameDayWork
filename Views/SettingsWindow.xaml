@@ -11,6 +11,17 @@
     </Grid.RowDefinitions>
     <Border Style="{StaticResource Card}" Padding="18">
       <TabControl>
+        <TabItem Header="应用">
+          <StackPanel Margin="12,18">
+            <TextBlock Text="应用设置" FontSize="20" FontWeight="SemiBold" Foreground="#0B1735" />
+            <TextBlock Text="控制 GameDayWork 的启动方式。" Foreground="#6D7F9D" Margin="0,6,0,18" />
+
+            <CheckBox Content="登录 Windows 后自动启动" IsChecked="{Binding StartWithWindows}" FontWeight="SemiBold" />
+            <TextBlock Text="启用后从当前便携目录启动，并直接在后台托盘运行，不弹出主窗口。移动程序目录后，启动一次程序即可自动修正路径。"
+                       Foreground="#6D7F9D" Margin="24,8,0,0" TextWrapping="Wrap" />
+          </StackPanel>
+        </TabItem>
+
         <TabItem Header="屏幕管理">
           <ScrollViewer VerticalScrollBarVisibility="Auto">
             <StackPanel Margin="12,18">

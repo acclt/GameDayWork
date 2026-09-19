@@ -161,6 +161,8 @@ public sealed class AppConfig
     public bool GenerateExecutionLog { get; set; } = true;
     public ScheduleConfig Schedule { get; set; } = new();
     public NotificationConfig Notifications { get; set; } = new();
+    [JsonPropertyName("startWithWindows")]
+    public bool StartWithWindows { get; set; }
     [JsonPropertyName("enableScreenManager")]
     public bool EnableScreenManager { get; set; } = true;
     [JsonPropertyName("idleTimeoutMinutes")]

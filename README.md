@@ -27,7 +27,8 @@
 - 定时任务在 `PrepareAt = ScheduledAt - WakeBefore` 提前恢复画面，在 `LaunchAt` 准点串行启动
 - 任务链结束后返回空闲监控，重新达到空闲超时后才再次进入假息屏
 - 托盘常驻；关闭主窗口只隐藏，只有托盘“退出程序”才结束进程
-- 右上角独立设置窗口，集中管理息屏与企业微信通知
+- 可选用户级开机自启；Windows 登录后直接在后台托盘运行，不弹出主窗口
+- 右上角独立设置窗口，集中管理应用启动、息屏与企业微信通知
 - 企业微信群机器人 Webhook 通知：应用启动、任务完成、任务故障、强制终止（超时或用户停止）
 
 ## 构建
@@ -48,10 +49,10 @@ dotnet run --project .\tests\GameOrchestrator.SmokeTests\GameOrchestrator.SmokeT
 发布 Windows x64 便携包：
 
 ```powershell
-.\scripts\Publish-Portable.ps1 -Version 0.3.2
+.\scripts\Publish-Portable.ps1 -Version 0.3.3
 ```
 
-配置位于 `data/config.json`，日志位于 `logs/yyyy-MM-dd.log`。进程规则默认禁止按名称兜底，避免误杀同名进程。
+配置位于 `data/config.json`，日志位于 `logs/yyyy-MM-dd.log`。启用开机自启后，程序会在当前用户的 Windows“启动”文件夹创建 `GameDayWork 开机自启.lnk`，禁用时删除。进程规则默认禁止按名称兜底，避免误杀同名进程。
 
 息屏管理器不修改 Windows 电源计划，也不调用系统息屏、屏保、锁屏或关闭显示器 API。它仅降低受支持显示器的亮度并覆盖黑色窗口。请先在 Windows 中手动把“关闭显示器”和“睡眠”设为“从不”。发布流程详见 [PORTABLE_RELEASE.md](PORTABLE_RELEASE.md)。
 
