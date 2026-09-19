@@ -12,6 +12,15 @@ void Assert(bool condition, string message) { if (!condition) failures.Add(messa
 Assert(!new AppConfig().AutoBlackoutAfterTask, "任务链结束后应返回空闲监控，不应立即进入假息屏");
 Assert(!new AppConfig().StartWithWindows, "新安装默认不应自行创建开机启动项");
 
+var cleanupDirectory = Path.Combine(Path.GetTempPath(), $"GameOrchestrator-LogCleanup-{Guid.NewGuid():N}");
+Directory.CreateDirectory(cleanupDirectory);
+var expiredLog = Path.Combine(cleanupDirectory, "2026-01-01.log");
+await File.WriteAllTextAsync(expiredLog, "expired");
+File.SetLastWriteTimeUtc(expiredLog, DateTime.UtcNow.AddDays(-31));
+var cleanupResult = await new LoggingService(cleanupDirectory).CleanupAsync();
+Assert(cleanupResult.DeletedFiles == 1 && !File.Exists(expiredLog), "日志清理应删除超过 30 天的日志文件");
+Directory.Delete(cleanupDirectory, true);
+
 var empty = new AutomationTaskConfig { Name = "测试任务" };
 Assert(validator.Validate([empty]).Any(x => x.Message.Contains("程序路径")), "空程序路径应校验失败");
 

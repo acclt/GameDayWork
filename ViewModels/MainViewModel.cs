@@ -219,6 +219,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _screenManager.Enabled = _config.EnableScreenManager;
         _screenManager.IdleTimeout = TimeSpan.FromMinutes(_config.IdleTimeoutMinutes);
         _log.FileLoggingEnabled = _config.GenerateExecutionLog;
+        var logCleanup = await _log.CleanupAsync();
+        if (logCleanup.DeletedFiles > 0)
+            await _log.WriteAsync(LogLevel.Info, $"日志自动清理完成：删除 {logCleanup.DeletedFiles} 个文件，释放 {logCleanup.FreedBytes / 1024d / 1024d:F1} MB");
+        if (logCleanup.FailedFiles > 0)
+            await _log.WriteAsync(LogLevel.Warning, $"日志自动清理有 {logCleanup.FailedFiles} 个文件无法删除");
         try { _startupService.Apply(_config.StartWithWindows); }
         catch (Exception ex) { await _log.WriteAsync(LogLevel.Warning, $"同步开机启动项失败：{ex.Message}"); }
         await _screenManager.RecoverDisplayStateAsync();

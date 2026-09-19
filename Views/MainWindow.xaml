@@ -76,7 +76,7 @@
           </Border>
           <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="18,0">
             <TextBlock Text="GameDayWork" FontSize="22" FontWeight="Bold" Foreground="#071536" />
-            <TextBlock Text="v0.3.3" Foreground="#6E7F9C" Margin="16,5,0,0" />
+            <TextBlock Text="v0.3.4" Foreground="#6E7F9C" Margin="16,5,0,0" />
             <TextBlock Text="让日常更简单" Foreground="#8190AA" Margin="16,5,0,0" />
           </StackPanel>
           <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">

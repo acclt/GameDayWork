@@ -14,6 +14,8 @@ internal sealed class BlackoutOverlayWindow : Window
     private const long WsExTopmost = 0x00000008L;
     private const long WsExToolWindow = 0x00000080L;
     private const long WsExNoActivate = 0x08000000L;
+    private const uint SwpNoSize = 0x0001;
+    private const uint SwpNoMove = 0x0002;
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpShowWindow = 0x0040;
     private static readonly nint HwndTopmost = new(-1);
@@ -61,6 +63,19 @@ internal sealed class BlackoutOverlayWindow : Window
         if (_handle == nint.Zero) return;
         var bounds = _screen.Bounds;
         SetWindowPos(_handle, HwndTopmost, bounds.X, bounds.Y, bounds.Width, bounds.Height, SwpNoActivate | SwpShowWindow);
+    }
+
+    public bool EnsureTopmost()
+    {
+        if (_handle == nint.Zero) return false;
+        return SetWindowPos(
+            _handle,
+            HwndTopmost,
+            0,
+            0,
+            0,
+            0,
+            SwpNoSize | SwpNoMove | SwpNoActivate | SwpShowWindow);
     }
 
     private nint WindowProc(nint hwnd, int msg, nint wParam, nint lParam, ref bool handled)
