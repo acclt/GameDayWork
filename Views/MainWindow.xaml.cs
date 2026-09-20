@@ -22,19 +22,15 @@ public partial class MainWindow : Window
     private Point _dragStart;
     private bool _exitRequested;
     private bool _initialized;
-    private readonly bool _startMinimized;
-    public MainWindow(bool startMinimized = false)
+    public MainWindow()
     {
-        _startMinimized = startMinimized;
         InitializeComponent(); DataContext = _viewModel;
         _idleTrayIcon = LoadTrayIcon("Assets/GameDayWork-Idle.ico");
         _runningTrayIcon = LoadTrayIcon("Assets/GameDayWork-Running.ico");
-        if (_startMinimized)
-        {
-            ShowActivated = false;
-            ShowInTaskbar = false;
-            WindowState = WindowState.Minimized;
-        }
+        Opacity = 0;
+        ShowActivated = false;
+        ShowInTaskbar = false;
+        _viewModel.HideToTrayRequested += HideToTray;
         _trayStatusItem = new Forms.ToolStripMenuItem("状态：空闲监控") { Enabled = false };
         _trayIcon = CreateTrayIcon();
         _viewModel.PropertyChanged += (_, e) =>
@@ -51,13 +47,8 @@ public partial class MainWindow : Window
             _viewModel.NoticeRequested += ShowNotice;
             WirePlaceholderControls();
             UpdateTrayStatus();
-            if (_startMinimized)
-            {
-                Hide();
-                ShowInTaskbar = true;
-                WindowState = WindowState.Normal;
-                ShowActivated = true;
-            }
+            if (_viewModel.StartMinimizedToTray) HideToTray();
+            else ShowMainWindow();
         };
         Closing += MainWindow_Closing;
     }
@@ -65,7 +56,7 @@ public partial class MainWindow : Window
     {
         if (_exitRequested) return;
         e.Cancel = true;
-        Hide();
+        HideToTray();
         try { await _viewModel.SaveAsync(); }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"隐藏前保存配置失败：{ex}"); }
     }
@@ -96,9 +87,19 @@ public partial class MainWindow : Window
 
     private void ShowMainWindow()
     {
+        Opacity = 1;
+        ShowInTaskbar = true;
+        ShowActivated = true;
         Show();
         if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
         Activate();
+    }
+
+    private bool HideToTray()
+    {
+        if (!IsVisible) return false;
+        Hide();
+        return true;
     }
 
     private void UpdateTrayStatus()

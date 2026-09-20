@@ -78,6 +78,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         get => _config.Notifications.CaptureTaskScreenshots;
         set { _config.Notifications.CaptureTaskScreenshots = value; OnPropertyChanged(); }
     }
+    public int RunningScreenshotDelaySeconds
+    {
+        get => _config.Notifications.RunningScreenshotDelaySeconds;
+        set
+        {
+            var normalized = Math.Clamp(value, 1, 3600);
+            if (_config.Notifications.RunningScreenshotDelaySeconds == normalized) return;
+            _config.Notifications.RunningScreenshotDelaySeconds = normalized;
+            OnPropertyChanged();
+        }
+    }
     public bool GenerateExecutionLog
     {
         get => _config.GenerateExecutionLog;
@@ -95,6 +106,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             if (_config.StartWithWindows == value) return;
             _config.StartWithWindows = value;
+            OnPropertyChanged();
+        }
+    }
+    public bool StartMinimizedToTray
+    {
+        get => _config.StartMinimizedToTray;
+        set
+        {
+            if (_config.StartMinimizedToTray == value) return;
+            _config.StartMinimizedToTray = value;
             OnPropertyChanged();
         }
     }
@@ -174,6 +195,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ICommand ImportToolsCommand { get; }
     public event Action<string>? ValidationFailed;
     public event Action<string>? NoticeRequested;
+    public event Func<bool>? HideToTrayRequested;
 
     public MainViewModel()
     {
@@ -181,7 +203,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var monitor = new ProcessMonitorService();
         var cleanup = new ProcessCleanupService(monitor, _log);
         _notificationService = new WeComNotificationService(bus, () => _config.Notifications, _log);
-        _screenshotCoordinator = new TaskScreenshotCoordinator(bus, new DesktopScreenshotService(), _notificationService, () => _config.Notifications, _log);
+        _screenshotCoordinator = new TaskScreenshotCoordinator(bus, new DesktopScreenshotService(), _notificationService,
+            () => _config.Notifications, _log, PrepareForScreenshotAsync);
         var runner = new TaskRunnerService(monitor, cleanup, _log, bus, _screenshotCoordinator);
         _brightnessManager = new BrightnessManager(_log);
         _screenManager = new ScreenManager(_log, _brightnessManager);
@@ -219,7 +242,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _config = await _configService.LoadAsync();
         _config.Notifications ??= new NotificationConfig();
         _config.Notifications.Enabled = !string.IsNullOrWhiteSpace(_config.Notifications.WeComWebhookUrl);
-        _config.Notifications.RunningScreenshotDelaySeconds = 60;
+        _config.Notifications.RunningScreenshotDelaySeconds = Math.Clamp(_config.Notifications.RunningScreenshotDelaySeconds, 1, 3600);
         _config.ExecutionMode = QueueExecutionMode.Sequential;
         _config.AutoBlackoutAfterTask = false;
         _config.IdleTimeoutMinutes = Math.Clamp(_config.IdleTimeoutMinutes, 1, 1440);
@@ -237,9 +260,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         await _screenManager.RecoverDisplayStateAsync();
         Tasks.CollectionChanged += (_, _) => RefreshTaskIndexes();
         RefreshTaskIndexes();
-        OnPropertyChanged(nameof(Tasks)); OnPropertyChanged(nameof(TaskIntervalSeconds)); OnPropertyChanged(nameof(FailurePolicy)); OnPropertyChanged(nameof(GenerateExecutionLog)); OnPropertyChanged(nameof(StartWithWindows));
+        OnPropertyChanged(nameof(Tasks)); OnPropertyChanged(nameof(TaskIntervalSeconds)); OnPropertyChanged(nameof(FailurePolicy)); OnPropertyChanged(nameof(GenerateExecutionLog)); OnPropertyChanged(nameof(StartWithWindows)); OnPropertyChanged(nameof(StartMinimizedToTray));
         OnPropertyChanged(nameof(EnableScreenManager)); OnPropertyChanged(nameof(IdleTimeoutMinutes)); OnPropertyChanged(nameof(WakeBeforeTaskSeconds));
-        OnPropertyChanged(nameof(WeComWebhookUrl)); OnPropertyChanged(nameof(NotifyOnStart)); OnPropertyChanged(nameof(NotifyOnComplete)); OnPropertyChanged(nameof(NotifyOnFailure)); OnPropertyChanged(nameof(NotifyOnForcedStop)); OnPropertyChanged(nameof(CaptureTaskScreenshots));
+        OnPropertyChanged(nameof(WeComWebhookUrl)); OnPropertyChanged(nameof(NotifyOnStart)); OnPropertyChanged(nameof(NotifyOnComplete)); OnPropertyChanged(nameof(NotifyOnFailure)); OnPropertyChanged(nameof(NotifyOnForcedStop)); OnPropertyChanged(nameof(CaptureTaskScreenshots)); OnPropertyChanged(nameof(RunningScreenshotDelaySeconds));
         SelectedTask = Tasks.FirstOrDefault();
         _screenManager.StartMonitoring();
         _scheduler.Start(() => Tasks.ToList(), () => _config.WakeBeforeTaskSeconds, RunScheduledTasksAsync);
@@ -413,6 +436,20 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(RelatedCount));
         OnPropertyChanged(nameof(CurrentStatusHeadline));
         OnPropertyChanged(nameof(CurrentStatusHint));
+    }
+    private async Task PrepareForScreenshotAsync(CancellationToken token)
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null) return;
+        var hidden = await dispatcher.InvokeAsync(() =>
+        {
+            var changed = false;
+            var handlers = HideToTrayRequested;
+            if (handlers is null) return false;
+            foreach (Func<bool> handler in handlers.GetInvocationList()) changed |= handler();
+            return changed;
+        });
+        if (hidden) await Task.Delay(TimeSpan.FromMilliseconds(250), token);
     }
     private void OpenLogs() { Directory.CreateDirectory(_log.LogDirectory); Process.Start(new ProcessStartInfo("explorer.exe", _log.LogDirectory) { UseShellExecute = true }); }
     public void Dispose() { _scheduler.Dispose(); _uiTimer.Stop(); }

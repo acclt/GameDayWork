@@ -36,7 +36,7 @@ public sealed class StartupService
             shellLink.SetPath(executablePath);
             shellLink.SetArguments(StartupArgument);
             shellLink.SetWorkingDirectory(AppContext.BaseDirectory);
-            shellLink.SetDescription("GameDayWork 开机自启（后台托盘运行）");
+            shellLink.SetDescription("GameDayWork 开机自启");
             shellLink.SetIconLocation(executablePath, 0);
             ((IPersistFile)shellLinkObject).Save(ShortcutPath, true);
         }

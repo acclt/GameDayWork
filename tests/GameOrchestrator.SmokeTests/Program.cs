@@ -11,8 +11,25 @@ void Assert(bool condition, string message) { if (!condition) failures.Add(messa
 
 Assert(!new AppConfig().AutoBlackoutAfterTask, "任务链结束后应返回空闲监控，不应立即进入假息屏");
 Assert(!new AppConfig().StartWithWindows, "新安装默认不应自行创建开机启动项");
+Assert(new AppConfig().StartMinimizedToTray, "新安装默认应隐藏到托盘启动");
 Assert(!new AppConfig().Notifications.CaptureTaskScreenshots, "新安装默认不应自行上传屏幕截图");
-Assert(new AppConfig().Notifications.RunningScreenshotDelaySeconds == 60, "任务运行截图默认应在启动 60 秒后触发");
+Assert(new AppConfig().Notifications.RunningScreenshotDelaySeconds == 120, "任务运行截图默认应在启动 120 秒后触发");
+
+var migrationDirectory = Path.Combine(Path.GetTempPath(), $"GameOrchestrator-ConfigMigration-{Guid.NewGuid():N}");
+Directory.CreateDirectory(Path.Combine(migrationDirectory, "data"));
+await File.WriteAllTextAsync(Path.Combine(migrationDirectory, "data", "config.json"),
+    """{"Notifications":{"runningScreenshotDelaySeconds":60}}""");
+var migrationConfigService = new ConfigService(migrationDirectory);
+var migratedConfig = await migrationConfigService.LoadAsync();
+Assert(migratedConfig.ConfigSchemaVersion == 1 && migratedConfig.Notifications.RunningScreenshotDelaySeconds == 120
+    && migratedConfig.StartMinimizedToTray,
+    "旧配置应迁移为 120 秒截图延迟并默认隐藏到托盘启动");
+migratedConfig.Notifications.RunningScreenshotDelaySeconds = 60;
+await migrationConfigService.SaveAsync(migratedConfig);
+var reloadedConfig = await migrationConfigService.LoadAsync();
+Assert(reloadedConfig.Notifications.RunningScreenshotDelaySeconds == 60,
+    "迁移完成后用户自定义的 60 秒截图延迟应保留");
+Directory.Delete(migrationDirectory, true);
 
 var cleanupDirectory = Path.Combine(Path.GetTempPath(), $"GameOrchestrator-LogCleanup-{Guid.NewGuid():N}");
 Directory.CreateDirectory(cleanupDirectory);

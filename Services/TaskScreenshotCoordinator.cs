@@ -11,6 +11,7 @@ public sealed class TaskScreenshotCoordinator : IAsyncDisposable
     private readonly WeComNotificationService _notifications;
     private readonly Func<NotificationConfig> _configProvider;
     private readonly LoggingService _log;
+    private readonly Func<CancellationToken, Task> _prepareForCapture;
     private readonly ConcurrentDictionary<Guid, PendingCapture> _pending = new();
     private readonly CancellationTokenSource _shutdown = new();
 
@@ -19,12 +20,14 @@ public sealed class TaskScreenshotCoordinator : IAsyncDisposable
         IScreenshotService screenshots,
         WeComNotificationService notifications,
         Func<NotificationConfig> configProvider,
-        LoggingService log)
+        LoggingService log,
+        Func<CancellationToken, Task>? prepareForCapture = null)
     {
         _screenshots = screenshots;
         _notifications = notifications;
         _configProvider = configProvider;
         _log = log;
+        _prepareForCapture = prepareForCapture ?? (_ => Task.CompletedTask);
         events.Subscribe<TaskStartedEvent>(message => ScheduleRunningCapture(message.Session));
         events.Subscribe<TaskCompletionDetectedEvent>(message => CancelRunningCapture(message.Session.SessionId));
         events.Subscribe<TaskCleanupStartedEvent>(message => CancelRunningCapture(message.Session.SessionId));
@@ -60,6 +63,7 @@ public sealed class TaskScreenshotCoordinator : IAsyncDisposable
         var processSnapshot = session.SnapshotTrackedProcesses();
         try
         {
+            await _prepareForCapture(token);
             var screenshot = await _screenshots.CaptureForTaskAsync(session, token);
             token.ThrowIfCancellationRequested();
             _notifications.QueueRunningScreenshot(session, processSnapshot, screenshot,
@@ -102,6 +106,7 @@ public sealed class TaskScreenshotCoordinator : IAsyncDisposable
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, _shutdown.Token, timeout.Token);
         try
         {
+            await _prepareForCapture(linked.Token);
             var screenshot = await _screenshots.CaptureForTaskAsync(session, linked.Token);
             _notifications.QueueEndScreenshot(session, screenshot, screenshot is null ? "截图服务未返回图像" : null);
             if (screenshot is not null)

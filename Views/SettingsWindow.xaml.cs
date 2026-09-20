@@ -8,6 +8,7 @@ public partial class SettingsWindow : Window
 {
     private sealed record SettingsSnapshot(
         bool StartWithWindows,
+        bool StartMinimizedToTray,
         bool EnableScreenManager,
         int IdleTimeoutMinutes,
         int WakeBeforeTaskSeconds,
@@ -16,7 +17,8 @@ public partial class SettingsWindow : Window
         bool NotifyOnComplete,
         bool NotifyOnFailure,
         bool NotifyOnForcedStop,
-        bool CaptureTaskScreenshots);
+        bool CaptureTaskScreenshots,
+        int RunningScreenshotDelaySeconds);
 
     private readonly MainViewModel _viewModel;
     private readonly SettingsSnapshot _snapshot;
@@ -30,6 +32,7 @@ public partial class SettingsWindow : Window
         DataContext = viewModel;
         _snapshot = new(
             viewModel.StartWithWindows,
+            viewModel.StartMinimizedToTray,
             viewModel.EnableScreenManager,
             viewModel.IdleTimeoutMinutes,
             viewModel.WakeBeforeTaskSeconds,
@@ -38,7 +41,8 @@ public partial class SettingsWindow : Window
             viewModel.NotifyOnComplete,
             viewModel.NotifyOnFailure,
             viewModel.NotifyOnForcedStop,
-            viewModel.CaptureTaskScreenshots);
+            viewModel.CaptureTaskScreenshots,
+            viewModel.RunningScreenshotDelaySeconds);
         Closing += (_, _) => RestoreSnapshotIfNeeded();
     }
 
@@ -92,6 +96,7 @@ public partial class SettingsWindow : Window
         if (_saved || _restored) return;
         _restored = true;
         _viewModel.StartWithWindows = _snapshot.StartWithWindows;
+        _viewModel.StartMinimizedToTray = _snapshot.StartMinimizedToTray;
         _viewModel.EnableScreenManager = _snapshot.EnableScreenManager;
         _viewModel.IdleTimeoutMinutes = _snapshot.IdleTimeoutMinutes;
         _viewModel.WakeBeforeTaskSeconds = _snapshot.WakeBeforeTaskSeconds;
@@ -101,5 +106,6 @@ public partial class SettingsWindow : Window
         _viewModel.NotifyOnFailure = _snapshot.NotifyOnFailure;
         _viewModel.NotifyOnForcedStop = _snapshot.NotifyOnForcedStop;
         _viewModel.CaptureTaskScreenshots = _snapshot.CaptureTaskScreenshots;
+        _viewModel.RunningScreenshotDelaySeconds = _snapshot.RunningScreenshotDelaySeconds;
     }
 }

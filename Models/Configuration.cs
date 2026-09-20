@@ -153,11 +153,13 @@ public sealed class NotificationConfig
     [JsonPropertyName("captureTaskScreenshots")]
     public bool CaptureTaskScreenshots { get; set; }
     [JsonPropertyName("runningScreenshotDelaySeconds")]
-    public int RunningScreenshotDelaySeconds { get; set; } = 60;
+    public int RunningScreenshotDelaySeconds { get; set; } = 120;
 }
 
 public sealed class AppConfig
 {
+    [JsonPropertyName("configSchemaVersion")]
+    public int ConfigSchemaVersion { get; set; }
     public ObservableCollection<AutomationTaskConfig> Tasks { get; set; } = [];
     public QueueExecutionMode ExecutionMode { get; set; } = QueueExecutionMode.Sequential;
     public int TaskIntervalSeconds { get; set; } = 5;
@@ -167,6 +169,8 @@ public sealed class AppConfig
     public NotificationConfig Notifications { get; set; } = new();
     [JsonPropertyName("startWithWindows")]
     public bool StartWithWindows { get; set; }
+    [JsonPropertyName("startMinimizedToTray")]
+    public bool StartMinimizedToTray { get; set; } = true;
     [JsonPropertyName("enableScreenManager")]
     public bool EnableScreenManager { get; set; } = true;
     [JsonPropertyName("idleTimeoutMinutes")]
