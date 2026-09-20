@@ -17,6 +17,8 @@ public partial class MainWindow : Window
     private readonly MainViewModel _viewModel = new();
     private readonly Forms.NotifyIcon _trayIcon;
     private readonly Forms.ToolStripMenuItem _trayStatusItem;
+    private readonly System.Drawing.Icon _idleTrayIcon;
+    private readonly System.Drawing.Icon _runningTrayIcon;
     private Point _dragStart;
     private bool _exitRequested;
     private bool _initialized;
@@ -25,6 +27,8 @@ public partial class MainWindow : Window
     {
         _startMinimized = startMinimized;
         InitializeComponent(); DataContext = _viewModel;
+        _idleTrayIcon = LoadTrayIcon("Assets/GameDayWork-Idle.ico");
+        _runningTrayIcon = LoadTrayIcon("Assets/GameDayWork-Running.ico");
         if (_startMinimized)
         {
             ShowActivated = false;
@@ -35,7 +39,7 @@ public partial class MainWindow : Window
         _trayIcon = CreateTrayIcon();
         _viewModel.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName == nameof(MainViewModel.ScreenStateText)) UpdateTrayStatus();
+            if (e.PropertyName is nameof(MainViewModel.ScreenStateText) or nameof(MainViewModel.HasActiveTask)) UpdateTrayStatus();
         };
         Loaded += async (_, _) =>
         {
@@ -46,6 +50,7 @@ public partial class MainWindow : Window
             _viewModel.ValidationFailed += ShowValidationErrors;
             _viewModel.NoticeRequested += ShowNotice;
             WirePlaceholderControls();
+            UpdateTrayStatus();
             if (_startMinimized)
             {
                 Hide();
@@ -78,11 +83,14 @@ public partial class MainWindow : Window
         var icon = new Forms.NotifyIcon
         {
             Text = "GameDayWork - 空闲监控",
-            Icon = System.Drawing.SystemIcons.Application,
+            Icon = _idleTrayIcon,
             ContextMenuStrip = menu,
             Visible = true
         };
-        icon.DoubleClick += (_, _) => ShowMainWindow();
+        icon.MouseClick += (_, args) =>
+        {
+            if (args.Button == Forms.MouseButtons.Left) ShowMainWindow();
+        };
         return icon;
     }
 
@@ -97,6 +105,16 @@ public partial class MainWindow : Window
     {
         _trayStatusItem.Text = $"状态：{_viewModel.ScreenStateText}";
         _trayIcon.Text = $"GameDayWork - {_viewModel.ScreenStateText}";
+        _trayIcon.Icon = _viewModel.HasActiveTask ? _runningTrayIcon : _idleTrayIcon;
+    }
+
+    private static System.Drawing.Icon LoadTrayIcon(string relativePath)
+    {
+        var resource = Application.GetResourceStream(new Uri($"pack://application:,,,/{relativePath}", UriKind.Absolute))
+            ?? throw new InvalidOperationException($"找不到托盘图标资源：{relativePath}");
+        using (resource.Stream)
+        using (var icon = new System.Drawing.Icon(resource.Stream))
+            return (System.Drawing.Icon)icon.Clone();
     }
 
     private async Task RunTrayActionAsync(Func<Task<bool>> action)
@@ -115,6 +133,8 @@ public partial class MainWindow : Window
         {
             _trayIcon.Visible = false;
             _trayIcon.Dispose();
+            _idleTrayIcon.Dispose();
+            _runningTrayIcon.Dispose();
             Application.Current.Shutdown();
         }
     }

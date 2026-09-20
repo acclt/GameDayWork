@@ -8,7 +8,8 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>GameDayWork</AssemblyName>
     <RootNamespace>GameOrchestrator</RootNamespace>
-    <Version>0.3.5</Version>
+    <Version>0.3.6</Version>
+    <ApplicationIcon>Assets\GameDayWork.ico</ApplicationIcon>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
@@ -20,5 +21,9 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="System.Management" Version="8.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <Resource Include="Assets\GameDayWork-Idle.ico" />
+    <Resource Include="Assets\GameDayWork-Running.ico" />
   </ItemGroup>
 </Project>

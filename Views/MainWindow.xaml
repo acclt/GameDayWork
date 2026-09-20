@@ -1,4 +1,4 @@
-<Window x:Class="GameOrchestrator.Views.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:m="clr-namespace:GameOrchestrator.Models" xmlns:i="clr-namespace:GameOrchestrator.Infrastructure" Title="GameDayWork" Width="1536" Height="960" MinWidth="1240" MinHeight="760" WindowStyle="None" ResizeMode="CanResize" Background="#EEF4FB" FontFamily="Segoe UI, Microsoft YaHei UI" FontSize="14">
+<Window x:Class="GameOrchestrator.Views.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:m="clr-namespace:GameOrchestrator.Models" xmlns:i="clr-namespace:GameOrchestrator.Infrastructure" Title="GameDayWork" Icon="/Assets/GameDayWork-Idle.ico" Width="1536" Height="960" MinWidth="1240" MinHeight="760" WindowStyle="None" ResizeMode="CanResize" Background="#EEF4FB" FontFamily="Segoe UI, Microsoft YaHei UI" FontSize="14">
   <Window.Resources>
     <i:ExecutableIconConverter x:Key="ExecutableIcon" />
     <i:LogLevelBrushConverter x:Key="LogBrush" />
@@ -76,7 +76,7 @@
           </Border>
           <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="18,0">
             <TextBlock Text="GameDayWork" FontSize="22" FontWeight="Bold" Foreground="#071536" />
-            <TextBlock Text="v0.3.5" Foreground="#6E7F9C" Margin="16,5,0,0" />
+            <TextBlock Text="v0.3.6" Foreground="#6E7F9C" Margin="16,5,0,0" />
             <TextBlock Text="让日常更简单" Foreground="#8190AA" Margin="16,5,0,0" />
           </StackPanel>
           <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
