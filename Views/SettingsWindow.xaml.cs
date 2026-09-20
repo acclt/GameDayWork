@@ -15,7 +15,8 @@ public partial class SettingsWindow : Window
         bool NotifyOnStart,
         bool NotifyOnComplete,
         bool NotifyOnFailure,
-        bool NotifyOnForcedStop);
+        bool NotifyOnForcedStop,
+        bool CaptureTaskScreenshots);
 
     private readonly MainViewModel _viewModel;
     private readonly SettingsSnapshot _snapshot;
@@ -36,7 +37,8 @@ public partial class SettingsWindow : Window
             viewModel.NotifyOnStart,
             viewModel.NotifyOnComplete,
             viewModel.NotifyOnFailure,
-            viewModel.NotifyOnForcedStop);
+            viewModel.NotifyOnForcedStop,
+            viewModel.CaptureTaskScreenshots);
         Closing += (_, _) => RestoreSnapshotIfNeeded();
     }
 
@@ -98,5 +100,6 @@ public partial class SettingsWindow : Window
         _viewModel.NotifyOnComplete = _snapshot.NotifyOnComplete;
         _viewModel.NotifyOnFailure = _snapshot.NotifyOnFailure;
         _viewModel.NotifyOnForcedStop = _snapshot.NotifyOnForcedStop;
+        _viewModel.CaptureTaskScreenshots = _snapshot.CaptureTaskScreenshots;
     }
 }

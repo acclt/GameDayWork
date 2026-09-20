@@ -6,7 +6,7 @@ namespace GameOrchestrator.Services;
 
 public sealed record TaskRunResult(RuntimeSession Session, bool Success, bool TimedOut, string? Error);
 
-public sealed class TaskRunnerService(ProcessMonitorService monitor, ProcessCleanupService cleanup, LoggingService log, TaskEventBus events)
+public sealed class TaskRunnerService(ProcessMonitorService monitor, ProcessCleanupService cleanup, LoggingService log, TaskEventBus events, TaskScreenshotCoordinator? screenshots = null)
 {
     public event Action<RuntimeSession>? SessionChanged;
     public async Task<TaskRunResult> RunAsync(AutomationTaskConfig task, CancellationToken queueToken)
@@ -65,12 +65,13 @@ public sealed class TaskRunnerService(ProcessMonitorService monitor, ProcessClea
         {
             task.Status = session.Status = TaskRunStatus.Cleaning; events.Publish(new TaskCleanupStartedEvent(session)); SessionChanged?.Invoke(session);
             await log.WriteAsync(LogLevel.Info, $"开始清理 {task.Name} 关联进程");
-            bool clean;
-            try { clean = await cleanup.CleanupAsync(session, task, job, CancellationToken.None); }
-            catch (Exception ex) { clean = false; error ??= ex.Message; }
+            ProcessCleanupResult cleanupResult;
+            try { cleanupResult = await cleanup.CleanupAsync(session, task, job, CancellationToken.None); }
+            catch (Exception ex) { cleanupResult = new(false, [], 0); error ??= ex.Message; }
+            session.SetTerminatedProcesses(cleanupResult.Processes);
             task.Status = session.Status = TaskRunStatus.CleanupVerifying; SessionChanged?.Invoke(session);
             var remaining = session.RootPid > 0 ? monitor.Scan(session, task).Count : 0;
-            if (clean && remaining == 0) { events.Publish(new TaskCleanupCompletedEvent(session)); await log.WriteAsync(LogLevel.Success, $"{task.Name} 清理完成"); }
+            if (cleanupResult.Success && remaining == 0) { events.Publish(new TaskCleanupCompletedEvent(session)); await log.WriteAsync(LogLevel.Success, $"{task.Name} 清理完成"); }
             else { error ??= $"仍有 {remaining} 个关联进程未退出"; await log.WriteAsync(LogLevel.Error, $"{task.Name} 清理验证失败：{error}"); }
             job?.Dispose(); root?.Dispose(); session.EndTime = DateTimeOffset.Now;
         }
@@ -80,6 +81,7 @@ public sealed class TaskRunnerService(ProcessMonitorService monitor, ProcessClea
         else if (queueToken.IsCancellationRequested) { events.Publish(new TaskStoppedEvent(session)); await log.WriteAsync(LogLevel.Warning, $"{task.Name} 已强制终止并完成清理"); }
         else if (timedOut) events.Publish(new TaskTimedOutEvent(session));
         else if (!timedOut) events.Publish(new TaskFailedEvent(session, error ?? session.ExitReason));
+        if (screenshots is not null) await screenshots.CaptureEndAsync(session, CancellationToken.None);
         SessionChanged?.Invoke(session);
         return new(session, success, timedOut, error);
     }
@@ -106,7 +108,7 @@ public sealed class TaskRunnerService(ProcessMonitorService monitor, ProcessClea
             if (task.CompletionMode == CompletionDetectionMode.SpecifiedProcessExit)
             {
                 var target = Path.GetFileNameWithoutExtension(task.CompletionProcessName);
-                var matches = session.TrackedProcesses.Where(p => string.Equals(p.ProcessName, target, StringComparison.OrdinalIgnoreCase)).ToList();
+                var matches = session.SnapshotTrackedProcesses().Where(p => string.Equals(p.ProcessName, target, StringComparison.OrdinalIgnoreCase)).ToList();
                 if (matches.Count > 0)
                 {
                     targetSeen = true;

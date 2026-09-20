@@ -10,7 +10,7 @@ public sealed class ProcessMonitorService
     {
         if (session.RootPid <= 0)
         {
-            session.TrackedProcesses.Clear();
+            session.ReplaceTrackedProcesses([]);
             return [];
         }
         var parents = SnapshotParents();
@@ -33,7 +33,7 @@ public sealed class ProcessMonitorService
             catch { }
             finally { process.Dispose(); }
         }
-        session.TrackedProcesses.Clear(); session.TrackedProcesses.AddRange(results.Values);
+        session.ReplaceTrackedProcesses(results.Values);
         return [.. results.Values];
     }
 

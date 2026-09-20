@@ -31,6 +31,8 @@
 - 可选用户级开机自启；Windows 登录后直接在后台托盘运行，不弹出主窗口
 - 右上角独立设置窗口，集中管理应用启动、息屏与企业微信通知
 - 企业微信群机器人 Webhook 通知：应用启动、任务完成、任务故障、强制终止（超时或用户停止）
+- 可选任务截图通知：任务启动满 60 秒时发送正在监控的进程清单和虚拟桌面截图，任务清理验证完成后再发送包含任务栏的结束截图
+- 强制终止通知包含实际处理的进程、PID、来源、终止方式和结果；截图失败会通过企业微信文本及本地日志提示
 
 ## 构建
 
@@ -50,7 +52,7 @@ dotnet run --project .\tests\GameOrchestrator.SmokeTests\GameOrchestrator.SmokeT
 发布 Windows x64 便携包：
 
 ```powershell
-.\scripts\Publish-Portable.ps1 -Version 0.3.4
+.\scripts\Publish-Portable.ps1 -Version 0.3.5
 ```
 
 配置位于 `data/config.json`，日志位于 `logs/yyyy-MM-dd.log`。程序启动时会删除超过 30 天的日志；日志总量超过 100 MB 时从最旧文件开始清理，并保留当天日志。启用开机自启后，程序会在当前用户的 Windows“启动”文件夹创建 `GameDayWork 开机自启.lnk`，禁用时删除。进程规则默认禁止按名称兜底，避免误杀同名进程。

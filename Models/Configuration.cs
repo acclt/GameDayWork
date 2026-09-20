@@ -150,6 +150,10 @@ public sealed class NotificationConfig
     public bool CaptureOnComplete { get; set; }
     public bool CaptureOnFailure { get; set; }
     public bool CaptureOnTimeout { get; set; }
+    [JsonPropertyName("captureTaskScreenshots")]
+    public bool CaptureTaskScreenshots { get; set; }
+    [JsonPropertyName("runningScreenshotDelaySeconds")]
+    public int RunningScreenshotDelaySeconds { get; set; } = 60;
 }
 
 public sealed class AppConfig

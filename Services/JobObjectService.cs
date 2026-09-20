@@ -23,7 +23,7 @@ public sealed class JobObjectService : IDisposable
         finally { Marshal.FreeHGlobal(ptr); }
     }
     public bool TryAssign(Process process) => _handle != IntPtr.Zero && AssignProcessToJobObject(_handle, process.Handle);
-    public void Terminate(uint exitCode = 1) { if (_handle != IntPtr.Zero) TerminateJobObject(_handle, exitCode); }
+    public bool Terminate(uint exitCode = 1) => _handle != IntPtr.Zero && TerminateJobObject(_handle, exitCode);
     public void Dispose() { if (_handle != IntPtr.Zero) { CloseHandle(_handle); _handle = IntPtr.Zero; } }
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] static extern IntPtr CreateJobObject(IntPtr attributes, string? name);

@@ -11,6 +11,8 @@ void Assert(bool condition, string message) { if (!condition) failures.Add(messa
 
 Assert(!new AppConfig().AutoBlackoutAfterTask, "任务链结束后应返回空闲监控，不应立即进入假息屏");
 Assert(!new AppConfig().StartWithWindows, "新安装默认不应自行创建开机启动项");
+Assert(!new AppConfig().Notifications.CaptureTaskScreenshots, "新安装默认不应自行上传屏幕截图");
+Assert(new AppConfig().Notifications.RunningScreenshotDelaySeconds == 60, "任务运行截图默认应在启动 60 秒后触发");
 
 var cleanupDirectory = Path.Combine(Path.GetTempPath(), $"GameOrchestrator-LogCleanup-{Guid.NewGuid():N}");
 Directory.CreateDirectory(cleanupDirectory);
@@ -136,6 +138,14 @@ if (File.Exists(commandProcessor))
         "指定进程退出后应自动执行并完成下一项");
     Assert(completionOrder.SequenceEqual([firstProcessTask.Name, secondProcessTask.Name]),
         "指定进程退出后的任务完成顺序应保持不变");
+
+    var forcedStopTask = CreateShortProcessTask("强制终止记录测试");
+    forcedStopTask.Arguments = "/d /s /c \"ping.exe 127.0.0.1 -n 30 > nul\"";
+    using var forcedStop = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+    var forcedStopResult = await processRunner.RunAsync(forcedStopTask, forcedStop.Token);
+    var terminated = forcedStopResult.Session.SnapshotTerminatedProcesses();
+    Assert(forcedStopResult.Session.Status == TaskRunStatus.Stopped, "取消运行后任务状态应为已停止");
+    Assert(terminated.Any(process => process.Success), "强制终止后应记录至少一个成功退出的关联进程");
 }
 
 var visibilityConverter = new EnumEqualsToVisibilityConverter();
@@ -155,6 +165,19 @@ if (!string.IsNullOrWhiteSpace(integrationName))
     var result = await runner.RunAsync(task, CancellationToken.None);
     Assert(result.Success, $"{task.Name} 真实运行失败：{result.Error ?? result.Session.ExitReason}");
     Console.WriteLine($"INTEGRATION: {task.Name} 结束状态={result.Session.Status}，原因={result.Session.ExitReason}");
+}
+
+if (args.Contains("--screenshot", StringComparer.OrdinalIgnoreCase))
+{
+    var screenshot = await new DesktopScreenshotService().CaptureDesktopAsync();
+    Assert(screenshot is not null, "桌面截图服务应返回图像");
+    if (screenshot is not null)
+    {
+        Assert(screenshot.Width > 0 && screenshot.Height > 0, "桌面截图尺寸必须有效");
+        Assert(screenshot.Data.Length > 0 && screenshot.Data.Length <= 1_900_000, "桌面截图必须符合企业微信大小限制");
+        Assert(screenshot.MimeType is "image/png" or "image/jpeg", "桌面截图格式必须为 PNG 或 JPEG");
+        Console.WriteLine($"SCREENSHOT: {screenshot.Width}x{screenshot.Height} {screenshot.Format} {screenshot.Data.Length / 1024d:F1} KB");
+    }
 }
 
 if (failures.Count > 0)

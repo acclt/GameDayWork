@@ -23,6 +23,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly ScreenManager _screenManager;
     private readonly TaskLaunchCoordinator _launchCoordinator;
     private readonly WeComNotificationService _notificationService;
+    private readonly TaskScreenshotCoordinator _screenshotCoordinator;
     private AppConfig _config = new();
     private AutomationTaskConfig? _selectedTask;
     private RuntimeSession? _currentSession;
@@ -71,6 +72,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _config.Notifications.NotifyOnTimeout = value;
             OnPropertyChanged();
         }
+    }
+    public bool CaptureTaskScreenshots
+    {
+        get => _config.Notifications.CaptureTaskScreenshots;
+        set { _config.Notifications.CaptureTaskScreenshots = value; OnPropertyChanged(); }
     }
     public bool GenerateExecutionLog
     {
@@ -133,7 +139,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string CurrentTaskName => HasActiveTask ? CurrentSession!.TaskName : "—";
     public string CurrentStage => HasActiveTask ? CurrentSession!.Status.ToString().ToUpperInvariant() : "IDLE";
     public string RootPid => HasActiveTask && CurrentSession!.RootPid > 0 ? CurrentSession.RootPid.ToString() : "—";
-    public int RelatedCount => HasActiveTask ? CurrentSession!.TrackedProcesses.Count : 0;
+    public int RelatedCount => HasActiveTask ? CurrentSession!.TrackedProcessCount : 0;
     public string CurrentStatusHeadline => HasActiveTask ? CurrentSession!.TaskName : "暂无任务运行";
     public string CurrentStatusHint => CurrentSession?.Status switch
     {
@@ -175,7 +181,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var monitor = new ProcessMonitorService();
         var cleanup = new ProcessCleanupService(monitor, _log);
         _notificationService = new WeComNotificationService(bus, () => _config.Notifications, _log);
-        var runner = new TaskRunnerService(monitor, cleanup, _log, bus);
+        _screenshotCoordinator = new TaskScreenshotCoordinator(bus, new DesktopScreenshotService(), _notificationService, () => _config.Notifications, _log);
+        var runner = new TaskRunnerService(monitor, cleanup, _log, bus, _screenshotCoordinator);
         _brightnessManager = new BrightnessManager(_log);
         _screenManager = new ScreenManager(_log, _brightnessManager);
         _queue = new TaskQueueService(runner, _log, bus);
@@ -212,6 +219,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _config = await _configService.LoadAsync();
         _config.Notifications ??= new NotificationConfig();
         _config.Notifications.Enabled = !string.IsNullOrWhiteSpace(_config.Notifications.WeComWebhookUrl);
+        _config.Notifications.RunningScreenshotDelaySeconds = 60;
         _config.ExecutionMode = QueueExecutionMode.Sequential;
         _config.AutoBlackoutAfterTask = false;
         _config.IdleTimeoutMinutes = Math.Clamp(_config.IdleTimeoutMinutes, 1, 1440);
@@ -231,7 +239,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         RefreshTaskIndexes();
         OnPropertyChanged(nameof(Tasks)); OnPropertyChanged(nameof(TaskIntervalSeconds)); OnPropertyChanged(nameof(FailurePolicy)); OnPropertyChanged(nameof(GenerateExecutionLog)); OnPropertyChanged(nameof(StartWithWindows));
         OnPropertyChanged(nameof(EnableScreenManager)); OnPropertyChanged(nameof(IdleTimeoutMinutes)); OnPropertyChanged(nameof(WakeBeforeTaskSeconds));
-        OnPropertyChanged(nameof(WeComWebhookUrl)); OnPropertyChanged(nameof(NotifyOnStart)); OnPropertyChanged(nameof(NotifyOnComplete)); OnPropertyChanged(nameof(NotifyOnFailure)); OnPropertyChanged(nameof(NotifyOnForcedStop));
+        OnPropertyChanged(nameof(WeComWebhookUrl)); OnPropertyChanged(nameof(NotifyOnStart)); OnPropertyChanged(nameof(NotifyOnComplete)); OnPropertyChanged(nameof(NotifyOnFailure)); OnPropertyChanged(nameof(NotifyOnForcedStop)); OnPropertyChanged(nameof(CaptureTaskScreenshots));
         SelectedTask = Tasks.FirstOrDefault();
         _screenManager.StartMonitoring();
         _scheduler.Start(() => Tasks.ToList(), () => _config.WakeBeforeTaskSeconds, RunScheduledTasksAsync);
@@ -412,6 +420,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         Dispose();
         await _launchCoordinator.DisposeAsync();
+        await _screenshotCoordinator.DisposeAsync();
         await _notificationService.DisposeAsync();
         await SaveAsync();
         await _screenManager.DisposeAsync();
