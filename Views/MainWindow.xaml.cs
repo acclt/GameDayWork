@@ -50,20 +50,25 @@ public partial class MainWindow : Window
         {
             if (e.PropertyName is nameof(MainViewModel.ScreenStateText) or nameof(MainViewModel.HasActiveTask)) UpdateTrayStatus();
         };
-        Loaded += async (_, _) =>
-        {
-            if (_initialized) return;
-            _initialized = true;
-            await _viewModel.InitializeAsync();
-            _viewModel.Logs.CollectionChanged += LogsChanged;
-            _viewModel.ValidationFailed += ShowValidationErrors;
-            _viewModel.NoticeRequested += ShowNotice;
-            WirePlaceholderControls();
-            UpdateTrayStatus();
-            if (_viewModel.StartMinimizedToTray) HideToTray();
-            else ShowMainWindow();
-        };
         Closing += MainWindow_Closing;
+    }
+
+    public async Task InitializeAsync()
+    {
+        if (_initialized) return;
+        _initialized = true;
+
+        // Create the native handle needed by the global hotkey without making the
+        // WPF window visible. The configuration decides whether Show is ever called.
+        _ = new WindowInteropHelper(this).EnsureHandle();
+        await _viewModel.InitializeAsync();
+        _viewModel.Logs.CollectionChanged += LogsChanged;
+        _viewModel.ValidationFailed += ShowValidationErrors;
+        _viewModel.NoticeRequested += ShowNotice;
+        WirePlaceholderControls();
+        UpdateTrayStatus();
+
+        if (!_viewModel.StartMinimizedToTray) ShowMainWindow();
     }
 
     protected override void OnSourceInitialized(EventArgs e)

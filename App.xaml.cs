@@ -5,7 +5,7 @@ namespace GameOrchestrator;
 
 public partial class App : Application
 {
-    protected override void OnStartup(StartupEventArgs e)
+    protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
         DispatcherUnhandledException += (_, args) =>
@@ -17,7 +17,7 @@ public partial class App : Application
         {
             var window = new MainWindow();
             MainWindow = window;
-            window.Show();
+            await window.InitializeAsync();
         }
         catch (Exception ex)
         {
