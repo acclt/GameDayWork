@@ -61,8 +61,6 @@ public sealed class ConfigService
             // 新的系统服务、电源策略和登录遮罩均为显式选择，升级时保持关闭。
             config.UseSystemService = false;
             config.LockScreenDisplayTimeoutEnabled = false;
-            config.BlackoutAfterLogin = false;
-            config.BlackoutAfterUnlock = false;
             config.LockScreenDisplayTimeoutAcSeconds = 60;
             config.LockScreenDisplayTimeoutDcSeconds = 30;
             config.ConfigSchemaVersion = 2;

@@ -177,10 +177,6 @@ public sealed class AppConfig
     public int LockScreenDisplayTimeoutAcSeconds { get; set; } = 60;
     [JsonPropertyName("lockScreenDisplayTimeoutDcSeconds")]
     public int LockScreenDisplayTimeoutDcSeconds { get; set; } = 30;
-    [JsonPropertyName("blackoutAfterLogin")]
-    public bool BlackoutAfterLogin { get; set; }
-    [JsonPropertyName("blackoutAfterUnlock")]
-    public bool BlackoutAfterUnlock { get; set; }
     [JsonPropertyName("startMinimizedToTray")]
     public bool StartMinimizedToTray { get; set; } = true;
     [JsonPropertyName("enableScreenManager")]

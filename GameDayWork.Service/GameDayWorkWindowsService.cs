@@ -27,7 +27,7 @@ internal sealed class GameDayWorkWindowsService : ServiceBase
         ApplyPowerPolicy();
         _controlPipe = new ServiceControlPipe(MarkIntentionalExit);
         _controlPipe.Start();
-        foreach (var sessionId in InteractiveSessionLauncher.GetActiveSessionIds()) EnsureDesktop(sessionId, afterLogin: true, afterUnlock: false);
+        foreach (var sessionId in InteractiveSessionLauncher.GetActiveSessionIds()) EnsureDesktop(sessionId);
         _pollTimer = new Timer(_ => PollSessions(), null, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15));
         ServiceFileLog.Write("服务已启动。");
     }
@@ -50,11 +50,10 @@ internal sealed class GameDayWorkWindowsService : ServiceBase
             case SessionChangeReason.SessionLogon:
                 _sessions.TryRemove(sessionId, out var old);
                 old?.Dispose();
-                EnsureDesktop(sessionId, afterLogin: true, afterUnlock: false);
+                EnsureDesktop(sessionId);
                 break;
             case SessionChangeReason.SessionUnlock:
-                EnsureDesktop(sessionId, afterLogin: false, afterUnlock: true);
-                _ = SendDesktopCommandAsync(sessionId, "blackout-unlock");
+                EnsureDesktop(sessionId);
                 break;
             case SessionChangeReason.SessionLogoff:
                 if (_sessions.TryRemove(sessionId, out var supervisor)) supervisor.Dispose();
@@ -74,15 +73,15 @@ internal sealed class GameDayWorkWindowsService : ServiceBase
         try
         {
             ApplyPowerPolicy();
-            foreach (var sessionId in InteractiveSessionLauncher.GetActiveSessionIds()) EnsureDesktop(sessionId, afterLogin: false, afterUnlock: false);
+            foreach (var sessionId in InteractiveSessionLauncher.GetActiveSessionIds()) EnsureDesktop(sessionId);
         }
         catch (Exception ex) { ServiceFileLog.Write($"轮询会话失败：{ex.Message}"); }
     }
 
-    private void EnsureDesktop(int sessionId, bool afterLogin, bool afterUnlock)
+    private void EnsureDesktop(int sessionId)
     {
         var supervisor = _sessions.GetOrAdd(sessionId, id => new SessionSupervisor(id));
-        supervisor.EnsureRunning(afterLogin, afterUnlock);
+        supervisor.EnsureRunning();
     }
 
     private void MarkIntentionalExit(int sessionId)
@@ -101,17 +100,6 @@ internal sealed class GameDayWorkWindowsService : ServiceBase
         catch (Exception ex) { ServiceFileLog.Write($"应用登录/锁屏息屏策略失败：{ex.Message}"); }
     }
 
-    private static async Task SendDesktopCommandAsync(int sessionId, string command)
-    {
-        try
-        {
-            using var pipe = new NamedPipeClientStream(".", $"GameDayWork.Desktop.{sessionId}", PipeDirection.Out, PipeOptions.Asynchronous);
-            await pipe.ConnectAsync(1500);
-            using var writer = new StreamWriter(pipe) { AutoFlush = true };
-            await writer.WriteLineAsync(command);
-        }
-        catch (Exception ex) { ServiceFileLog.Write($"向会话 {sessionId} 发送 {command} 失败：{ex.Message}"); }
-    }
 }
 
 internal sealed class SessionSupervisor(int sessionId) : IDisposable
@@ -124,17 +112,17 @@ internal sealed class SessionSupervisor(int sessionId) : IDisposable
     private bool _intentionalExit;
     private bool _launching;
 
-    public void EnsureRunning(bool afterLogin, bool afterUnlock)
+    public void EnsureRunning()
     {
         lock (_gate)
         {
             if (_intentionalExit || _launching || _process is { HasExited: false }) return;
             _launching = true;
         }
-        _ = LaunchAndWatchAsync(afterLogin, afterUnlock);
+        _ = LaunchAndWatchAsync();
     }
 
-    private async Task LaunchAndWatchAsync(bool afterLogin, bool afterUnlock)
+    private async Task LaunchAndWatchAsync()
     {
         var handedOff = false;
         try
@@ -145,7 +133,7 @@ internal sealed class SessionSupervisor(int sessionId) : IDisposable
                 ServiceFileLog.Write($"会话 {sessionId} 的桌面端路径不存在：{config.DesktopExecutablePath}");
                 return;
             }
-            var arguments = $"--service-managed --session-id={sessionId}" + (afterLogin ? " --after-login" : "") + (afterUnlock ? " --after-unlock" : "");
+            var arguments = "--service-managed";
             var process = FindExistingDesktop() ?? InteractiveSessionLauncher.Start(sessionId, config.DesktopExecutablePath, arguments);
             lock (_gate) _process = process;
             ServiceFileLog.Write($"已在会话 {sessionId} 启动桌面端 PID {process.Id}。");
@@ -170,7 +158,7 @@ internal sealed class SessionSupervisor(int sessionId) : IDisposable
             ServiceFileLog.Write($"会话 {sessionId} 桌面端异常退出（{exitCode}），{delay.Value.TotalSeconds:0} 秒后恢复。");
             await Task.Delay(delay.Value, _shutdown.Token);
             lock (_gate) { _launching = false; handedOff = true; }
-            EnsureRunning(afterLogin: false, afterUnlock: false);
+            EnsureRunning();
         }
         catch (OperationCanceledException) { }
         catch (Exception ex) { ServiceFileLog.Write($"会话 {sessionId} 桌面端保活失败：{ex.Message}"); }

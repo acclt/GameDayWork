@@ -16,8 +16,6 @@ public partial class SettingsWindow : Window
         bool LockScreenDisplayTimeoutEnabled,
         int LockScreenDisplayTimeoutAcSeconds,
         int LockScreenDisplayTimeoutDcSeconds,
-        bool BlackoutAfterLogin,
-        bool BlackoutAfterUnlock,
         string WeComWebhookUrl,
         bool NotifyOnStart,
         bool NotifyOnComplete,
@@ -46,8 +44,6 @@ public partial class SettingsWindow : Window
             viewModel.LockScreenDisplayTimeoutEnabled,
             viewModel.LockScreenDisplayTimeoutAcSeconds,
             viewModel.LockScreenDisplayTimeoutDcSeconds,
-            viewModel.BlackoutAfterLogin,
-            viewModel.BlackoutAfterUnlock,
             viewModel.WeComWebhookUrl,
             viewModel.NotifyOnStart,
             viewModel.NotifyOnComplete,
@@ -122,8 +118,6 @@ public partial class SettingsWindow : Window
         _viewModel.LockScreenDisplayTimeoutEnabled = _snapshot.LockScreenDisplayTimeoutEnabled;
         _viewModel.LockScreenDisplayTimeoutAcSeconds = _snapshot.LockScreenDisplayTimeoutAcSeconds;
         _viewModel.LockScreenDisplayTimeoutDcSeconds = _snapshot.LockScreenDisplayTimeoutDcSeconds;
-        _viewModel.BlackoutAfterLogin = _snapshot.BlackoutAfterLogin;
-        _viewModel.BlackoutAfterUnlock = _snapshot.BlackoutAfterUnlock;
         _viewModel.WeComWebhookUrl = _snapshot.WeComWebhookUrl;
         _viewModel.NotifyOnStart = _snapshot.NotifyOnStart;
         _viewModel.NotifyOnComplete = _snapshot.NotifyOnComplete;

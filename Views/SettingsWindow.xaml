@@ -85,12 +85,6 @@
                 </StackPanel>
               </Border>
 
-              <TextBlock Text="登录与解锁遮罩" FontWeight="SemiBold" Margin="0,20,0,8"/>
-              <CheckBox Content="登录进入桌面后立即进入遮罩" IsChecked="{Binding BlackoutAfterLogin}" Margin="0,4,0,0"/>
-              <CheckBox Content="从锁屏解锁后立即进入遮罩" IsChecked="{Binding BlackoutAfterUnlock}" Margin="0,10,0,0"/>
-              <TextBlock Text="Windows 登录和安全桌面不会被绕过或覆盖；遮罩只在交互桌面中显示，原有 Ctrl + Alt + Z 与输入恢复行为保持不变。"
-                         Foreground="#6D7F9D" Margin="24,8,0,0" TextWrapping="Wrap"/>
-
               <Button Content="打开 Windows 电源和电池设置" HorizontalAlignment="Left" Margin="0,20,0,0" Click="OpenWindowsPowerSettings_Click"/>
               <TextBlock Text="该页面控制普通已解锁桌面的息屏与睡眠；登录页和锁屏页时间由 GDW 上方设置控制。"
                          Foreground="#6D7F9D" Margin="0,8,0,0" TextWrapping="Wrap"/>

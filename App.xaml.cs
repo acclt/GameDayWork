@@ -19,8 +19,6 @@ public partial class App : Application
             return;
         }
         ServiceManaged = e.Args.Contains("--service-managed", StringComparer.OrdinalIgnoreCase);
-        var afterLogin = e.Args.Contains("--after-login", StringComparer.OrdinalIgnoreCase);
-        var afterUnlock = e.Args.Contains("--after-unlock", StringComparer.OrdinalIgnoreCase);
         DispatcherUnhandledException += (_, args) =>
         {
             MessageBox.Show(args.Exception.Message, "未处理错误", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -28,7 +26,7 @@ public partial class App : Application
         };
         try
         {
-            var window = new MainWindow(ServiceManaged, afterLogin, afterUnlock, sessionId);
+            var window = new MainWindow(ServiceManaged);
             MainWindow = window;
             await window.InitializeAsync();
         }

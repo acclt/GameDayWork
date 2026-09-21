@@ -137,8 +137,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public bool LockScreenDisplayTimeoutEnabled { get => _config.LockScreenDisplayTimeoutEnabled; set { _config.LockScreenDisplayTimeoutEnabled = value; OnPropertyChanged(); } }
     public int LockScreenDisplayTimeoutAcSeconds { get => _config.LockScreenDisplayTimeoutAcSeconds; set { _config.LockScreenDisplayTimeoutAcSeconds = Math.Clamp(value, 10, 3600); OnPropertyChanged(); } }
     public int LockScreenDisplayTimeoutDcSeconds { get => _config.LockScreenDisplayTimeoutDcSeconds; set { _config.LockScreenDisplayTimeoutDcSeconds = Math.Clamp(value, 10, 3600); OnPropertyChanged(); } }
-    public bool BlackoutAfterLogin { get => _config.BlackoutAfterLogin; set { _config.BlackoutAfterLogin = value; OnPropertyChanged(); } }
-    public bool BlackoutAfterUnlock { get => _config.BlackoutAfterUnlock; set { _config.BlackoutAfterUnlock = value; OnPropertyChanged(); } }
     public bool StartMinimizedToTray
     {
         get => _config.StartMinimizedToTray;
@@ -295,7 +293,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         RefreshTaskIndexes();
         OnPropertyChanged(nameof(Tasks)); OnPropertyChanged(nameof(TaskIntervalSeconds)); OnPropertyChanged(nameof(FailurePolicy)); OnPropertyChanged(nameof(GenerateExecutionLog)); OnPropertyChanged(nameof(StartWithWindows)); OnPropertyChanged(nameof(StartMinimizedToTray));
         OnPropertyChanged(nameof(EnableScreenManager)); OnPropertyChanged(nameof(IdleTimeoutMinutes)); OnPropertyChanged(nameof(WakeBeforeTaskSeconds));
-        OnPropertyChanged(nameof(UseSystemService)); OnPropertyChanged(nameof(LockScreenDisplayTimeoutEnabled)); OnPropertyChanged(nameof(LockScreenDisplayTimeoutAcSeconds)); OnPropertyChanged(nameof(LockScreenDisplayTimeoutDcSeconds)); OnPropertyChanged(nameof(BlackoutAfterLogin)); OnPropertyChanged(nameof(BlackoutAfterUnlock));
+        OnPropertyChanged(nameof(UseSystemService)); OnPropertyChanged(nameof(LockScreenDisplayTimeoutEnabled)); OnPropertyChanged(nameof(LockScreenDisplayTimeoutAcSeconds)); OnPropertyChanged(nameof(LockScreenDisplayTimeoutDcSeconds));
         OnPropertyChanged(nameof(WeComWebhookUrl)); OnPropertyChanged(nameof(NotifyOnStart)); OnPropertyChanged(nameof(NotifyOnComplete)); OnPropertyChanged(nameof(NotifyOnFailure)); OnPropertyChanged(nameof(NotifyOnForcedStop)); OnPropertyChanged(nameof(CaptureTaskScreenshots)); OnPropertyChanged(nameof(RunningScreenshotDelaySeconds));
         SelectedTask = Tasks.FirstOrDefault();
         _screenManager.StartMonitoring();

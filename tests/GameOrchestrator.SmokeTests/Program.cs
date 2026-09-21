@@ -33,6 +33,10 @@ await migrationConfigService.SaveAsync(migratedConfig);
 var reloadedConfig = await migrationConfigService.LoadAsync();
 Assert(reloadedConfig.Notifications.RunningScreenshotDelaySeconds == 60,
     "迁移完成后用户自定义的 60 秒截图延迟应保留");
+var migratedJson = await File.ReadAllTextAsync(Path.Combine(migrationDirectory, "data", "config.json"));
+Assert(!migratedJson.Contains("blackoutAfterLogin", StringComparison.OrdinalIgnoreCase)
+    && !migratedJson.Contains("blackoutAfterUnlock", StringComparison.OrdinalIgnoreCase),
+    "配置文件不应继续保存登录或解锁后立即遮罩选项");
 Directory.Delete(migrationDirectory, true);
 
 var schemeOne = Guid.NewGuid();

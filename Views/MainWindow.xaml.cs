@@ -37,15 +37,9 @@ public partial class MainWindow : Window
     private HwndSource? _windowSource;
     private int _blackoutHotKeyPending;
     private readonly bool _serviceManaged;
-    private readonly bool _afterLogin;
-    private readonly bool _afterUnlock;
-    private readonly DesktopServicePipe _servicePipe;
-    public MainWindow(bool serviceManaged = false, bool afterLogin = false, bool afterUnlock = false, int? sessionId = null)
+    public MainWindow(bool serviceManaged = false)
     {
         _serviceManaged = serviceManaged;
-        _afterLogin = afterLogin;
-        _afterUnlock = afterUnlock;
-        _servicePipe = new DesktopServicePipe(sessionId ?? System.Diagnostics.Process.GetCurrentProcess().SessionId, HandleServiceCommandAsync);
         InitializeComponent(); DataContext = _viewModel;
         _idleTrayIcon = LoadTrayIcon("Assets/GameDayWork-Idle.ico");
         _runningTrayIcon = LoadTrayIcon("Assets/GameDayWork-Running.ico");
@@ -60,7 +54,6 @@ public partial class MainWindow : Window
             if (e.PropertyName is nameof(MainViewModel.ScreenStateText) or nameof(MainViewModel.HasActiveTask)) UpdateTrayStatus();
         };
         Closing += MainWindow_Closing;
-        SystemEvents.SessionSwitch += SystemEvents_SessionSwitch;
     }
 
     public async Task InitializeAsync()
@@ -72,27 +65,13 @@ public partial class MainWindow : Window
         // WPF window visible. The configuration decides whether Show is ever called.
         _ = new WindowInteropHelper(this).EnsureHandle();
         await _viewModel.InitializeAsync();
-        _servicePipe.Start();
         _viewModel.Logs.CollectionChanged += LogsChanged;
         _viewModel.ValidationFailed += ShowValidationErrors;
         _viewModel.NoticeRequested += ShowNotice;
         WirePlaceholderControls();
         UpdateTrayStatus();
 
-        if ((_afterLogin && _viewModel.BlackoutAfterLogin) || (_afterUnlock && _viewModel.BlackoutAfterUnlock)) await _viewModel.EnterBlackoutAsync();
-        if (!_viewModel.StartMinimizedToTray && !((_afterLogin && _viewModel.BlackoutAfterLogin) || (_afterUnlock && _viewModel.BlackoutAfterUnlock))) ShowMainWindow();
-    }
-
-    private Task HandleServiceCommandAsync(string command) => Dispatcher.InvokeAsync(async () =>
-    {
-        if (command.Equals("blackout-unlock", StringComparison.OrdinalIgnoreCase) && _viewModel.BlackoutAfterUnlock)
-            await _viewModel.EnterBlackoutAsync();
-    }).Task.Unwrap();
-
-    private void SystemEvents_SessionSwitch(object sender, SessionSwitchEventArgs e)
-    {
-        if (e.Reason != SessionSwitchReason.SessionUnlock || !_viewModel.BlackoutAfterUnlock) return;
-        _ = Dispatcher.InvokeAsync(() => _viewModel.EnterBlackoutAsync()).Task.Unwrap();
+        if (!_viewModel.StartMinimizedToTray) ShowMainWindow();
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -116,8 +95,6 @@ public partial class MainWindow : Window
         if (_windowHandle != nint.Zero) UnregisterHotKey(_windowHandle, BlackoutHotKeyId);
         _windowSource?.RemoveHook(WindowMessageHook);
         _windowSource = null;
-        SystemEvents.SessionSwitch -= SystemEvents_SessionSwitch;
-        _ = _servicePipe.DisposeAsync();
         base.OnClosed(e);
     }
 
