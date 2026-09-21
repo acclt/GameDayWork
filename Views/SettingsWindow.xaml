@@ -34,6 +34,11 @@
 
               <CheckBox Content="启用空闲假息屏" IsChecked="{Binding EnableScreenManager}" FontWeight="SemiBold" />
 
+              <Border Background="#EDF4FF" CornerRadius="8" Padding="14" Margin="0,14,0,0">
+                <TextBlock Text="全局快捷键 Ctrl + Alt + Z：按一次进入遮罩息屏。恢复显示仍使用任意鼠标或键盘输入。"
+                           TextWrapping="Wrap" Foreground="#355179" />
+              </Border>
+
               <Grid Margin="0,18,0,0">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="170" />

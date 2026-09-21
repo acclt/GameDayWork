@@ -1,9 +1,11 @@
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using Microsoft.Win32;
 using GameOrchestrator.Models;
@@ -14,6 +16,14 @@ namespace GameOrchestrator.Views;
 
 public partial class MainWindow : Window
 {
+    private const int BlackoutHotKeyId = 0x4744;
+    private const uint ModAlt = 0x0001;
+    private const uint ModControl = 0x0002;
+    private const uint ModNoRepeat = 0x4000;
+    private const int WmHotKey = 0x0312;
+    private const int VkControl = 0x11;
+    private const int VkMenu = 0x12;
+    private const int VkZ = 0x5A;
     private readonly MainViewModel _viewModel = new();
     private readonly Forms.NotifyIcon _trayIcon;
     private readonly Forms.ToolStripMenuItem _trayStatusItem;
@@ -22,6 +32,9 @@ public partial class MainWindow : Window
     private Point _dragStart;
     private bool _exitRequested;
     private bool _initialized;
+    private nint _windowHandle;
+    private HwndSource? _windowSource;
+    private int _blackoutHotKeyPending;
     public MainWindow()
     {
         InitializeComponent(); DataContext = _viewModel;
@@ -52,6 +65,65 @@ public partial class MainWindow : Window
         };
         Closing += MainWindow_Closing;
     }
+
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+        _windowHandle = new WindowInteropHelper(this).Handle;
+        _windowSource = HwndSource.FromHwnd(_windowHandle);
+        _windowSource?.AddHook(WindowMessageHook);
+        if (!RegisterHotKey(_windowHandle, BlackoutHotKeyId, ModControl | ModAlt | ModNoRepeat, VkZ))
+        {
+            MessageBox.Show(
+                "无法注册全局快捷键 Ctrl + Alt + Z，可能已被其他程序占用。",
+                "快捷键注册失败",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        if (_windowHandle != nint.Zero) UnregisterHotKey(_windowHandle, BlackoutHotKeyId);
+        _windowSource?.RemoveHook(WindowMessageHook);
+        _windowSource = null;
+        base.OnClosed(e);
+    }
+
+    private nint WindowMessageHook(nint hwnd, int message, nint wParam, nint lParam, ref bool handled)
+    {
+        if (message != WmHotKey || wParam.ToInt32() != BlackoutHotKeyId) return nint.Zero;
+        handled = true;
+        _ = EnterBlackoutFromHotKeyAsync();
+        return nint.Zero;
+    }
+
+    private async Task EnterBlackoutFromHotKeyAsync()
+    {
+        if (Interlocked.Exchange(ref _blackoutHotKeyPending, 1) != 0) return;
+        try
+        {
+            // WM_HOTKEY is raised while the keys are still held. Wait for their release so
+            // ScreenManager does not interpret the key-up events as a request to wake again.
+            while (IsHotKeyPressed())
+                await Task.Delay(25);
+
+            await _viewModel.EnterBlackoutAsync();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "息屏管理器", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _blackoutHotKeyPending, 0);
+        }
+    }
+
+    private static bool IsHotKeyPressed() =>
+        IsKeyDown(VkControl) || IsKeyDown(VkMenu) || IsKeyDown(VkZ);
+
+    private static bool IsKeyDown(int virtualKey) => (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
     private async void MainWindow_Closing(object? sender, CancelEventArgs e)
     {
         if (_exitRequested) return;
@@ -264,4 +336,15 @@ public partial class MainWindow : Window
         while (source is not null && source is not ListBoxItem) source = System.Windows.Media.VisualTreeHelper.GetParent(source);
         return (source as ListBoxItem)?.DataContext as AutomationTaskConfig;
     }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool RegisterHotKey(nint windowHandle, int id, uint modifiers, uint virtualKey);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool UnregisterHotKey(nint windowHandle, int id);
+
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int virtualKey);
 }
