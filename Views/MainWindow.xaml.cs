@@ -7,6 +7,7 @@ using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using GameOrchestrator.Models;
 using GameOrchestrator.ViewModels;
@@ -36,6 +37,7 @@ public partial class MainWindow : Window
     private nint _windowHandle;
     private HwndSource? _windowSource;
     private int _blackoutHotKeyPending;
+    private bool _logScrollPending;
     private readonly bool _serviceManaged;
     public MainWindow(bool serviceManaged = false)
     {
@@ -182,6 +184,13 @@ public partial class MainWindow : Window
         return true;
     }
 
+    internal void PrepareForFatalShutdown()
+    {
+        // Do not let the normal close-to-tray behavior cancel a fatal application shutdown.
+        _exitRequested = true;
+        _trayIcon.Visible = false;
+    }
+
     private void UpdateTrayStatus()
     {
         _trayStatusItem.Text = $"状态：{_viewModel.ScreenStateText}";
@@ -301,7 +310,33 @@ public partial class MainWindow : Window
     private void Minimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
     private void Maximize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
     private void Close_Click(object sender, RoutedEventArgs e) => Close();
-    private void LogsChanged(object? sender, NotifyCollectionChangedEventArgs e) { if (_viewModel.Logs.Count > 0) LogList.ScrollIntoView(_viewModel.Logs[^1]); }
+    private void LogsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (_viewModel.Logs.Count == 0 || _logScrollPending) return;
+
+        // CollectionChanged is raised while WPF is still updating the ItemsControl. Calling
+        // ScrollIntoView synchronously here can re-enter its item generator and leave it out
+        // of sync with the source. Coalesce bursts of log entries and scroll after layout has
+        // had a chance to process the collection changes.
+        _logScrollPending = true;
+        Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, () =>
+        {
+            _logScrollPending = false;
+            if (_viewModel.Logs.LastOrDefault() is not { } lastEntry) return;
+
+            try
+            {
+                // The active log filter may exclude the newest entry.
+                if (LogList.Items.Contains(lastEntry)) LogList.ScrollIntoView(lastEntry);
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Auto-scroll is optional. If WPF is still regenerating containers, skip this
+                // request instead of allowing a transient view inconsistency to stop the task.
+                System.Diagnostics.Debug.WriteLine($"日志列表自动滚动已跳过：{ex}");
+            }
+        });
+    }
     private void AddTask_Click(object sender, RoutedEventArgs e)
     {
         var menu = new ContextMenu

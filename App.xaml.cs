@@ -6,6 +6,7 @@ namespace GameOrchestrator;
 public partial class App : Application
 {
     private Mutex? _singleInstanceMutex;
+    private int _handlingUnhandledException;
     internal bool ServiceManaged { get; private set; }
 
     protected override async void OnStartup(StartupEventArgs e)
@@ -19,11 +20,7 @@ public partial class App : Application
             return;
         }
         ServiceManaged = e.Args.Contains("--service-managed", StringComparer.OrdinalIgnoreCase);
-        DispatcherUnhandledException += (_, args) =>
-        {
-            MessageBox.Show(args.Exception.Message, "未处理错误", MessageBoxButton.OK, MessageBoxImage.Error);
-            args.Handled = true;
-        };
+        DispatcherUnhandledException += HandleDispatcherUnhandledException;
         try
         {
             var window = new MainWindow(ServiceManaged);
@@ -43,5 +40,36 @@ public partial class App : Application
     {
         _singleInstanceMutex?.Dispose();
         base.OnExit(e);
+    }
+
+    private void HandleDispatcherUnhandledException(object sender, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs args)
+    {
+        // Continuing after an arbitrary dispatcher exception can repeatedly execute the same
+        // failing UI callback. Report the first failure once and shut down cleanly; a nested
+        // exception must fall through to the runtime instead of opening another dialog.
+        if (Interlocked.Exchange(ref _handlingUnhandledException, 1) != 0)
+        {
+            args.Handled = false;
+            return;
+        }
+
+        args.Handled = true;
+        var path = Path.Combine(AppContext.BaseDirectory, "unhandled-error.log");
+        try { File.WriteAllText(path, $"{DateTimeOffset.Now:O}{Environment.NewLine}{args.Exception}"); }
+        catch { /* Do not let diagnostics cause another dispatcher exception. */ }
+
+        try
+        {
+            MessageBox.Show(
+                $"程序遇到无法恢复的错误，将安全退出。\n\n{args.Exception.Message}\n\n详细信息：{path}",
+                "GameDayWork 错误",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            if (MainWindow is MainWindow window) window.PrepareForFatalShutdown();
+            Shutdown(-1);
+        }
     }
 }
