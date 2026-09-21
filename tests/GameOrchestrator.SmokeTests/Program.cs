@@ -11,6 +11,10 @@ void Assert(bool condition, string message) { if (!condition) failures.Add(messa
 
 Assert(!new AppConfig().AutoBlackoutAfterTask, "任务链结束后应返回空闲监控，不应立即进入假息屏");
 Assert(!new AppConfig().StartWithWindows, "新安装默认不应自行创建开机启动项");
+Assert(!new AppConfig().UseSystemService, "新安装默认不应静默安装系统服务");
+Assert(!new AppConfig().LockScreenDisplayTimeoutEnabled, "新安装默认不应修改登录页或锁屏页息屏时间");
+Assert(new AppConfig().LockScreenDisplayTimeoutAcSeconds == 60 && new AppConfig().LockScreenDisplayTimeoutDcSeconds == 30,
+    "登录页和锁屏页息屏时间默认应为接通电源 60 秒、使用电池 30 秒");
 Assert(new AppConfig().StartMinimizedToTray, "新安装默认应隐藏到托盘启动");
 Assert(!new AppConfig().Notifications.CaptureTaskScreenshots, "新安装默认不应自行上传屏幕截图");
 Assert(new AppConfig().Notifications.RunningScreenshotDelaySeconds == 120, "任务运行截图默认应在启动 120 秒后触发");
@@ -21,15 +25,41 @@ await File.WriteAllTextAsync(Path.Combine(migrationDirectory, "data", "config.js
     """{"Notifications":{"runningScreenshotDelaySeconds":60}}""");
 var migrationConfigService = new ConfigService(migrationDirectory);
 var migratedConfig = await migrationConfigService.LoadAsync();
-Assert(migratedConfig.ConfigSchemaVersion == 1 && migratedConfig.Notifications.RunningScreenshotDelaySeconds == 120
-    && migratedConfig.StartMinimizedToTray,
-    "旧配置应迁移为 120 秒截图延迟并默认隐藏到托盘启动");
+Assert(migratedConfig.ConfigSchemaVersion == 2 && migratedConfig.Notifications.RunningScreenshotDelaySeconds == 120
+    && migratedConfig.StartMinimizedToTray && !migratedConfig.UseSystemService && !migratedConfig.LockScreenDisplayTimeoutEnabled,
+    "旧配置应迁移为 120 秒截图延迟、默认隐藏到托盘，且不得静默启用服务或电源修改");
 migratedConfig.Notifications.RunningScreenshotDelaySeconds = 60;
 await migrationConfigService.SaveAsync(migratedConfig);
 var reloadedConfig = await migrationConfigService.LoadAsync();
 Assert(reloadedConfig.Notifications.RunningScreenshotDelaySeconds == 60,
     "迁移完成后用户自定义的 60 秒截图延迟应保留");
 Directory.Delete(migrationDirectory, true);
+
+var schemeOne = Guid.NewGuid();
+var schemeTwo = Guid.NewGuid();
+var fakePower = new FakeLockScreenPowerApi(schemeOne,
+    new Dictionary<Guid, PowerTimeoutValues> { [schemeOne] = new(120, 90), [schemeTwo] = new(300, 180) });
+var powerConfig = new MachineServiceConfig { LockScreenTimeoutEnabled = true, AcSeconds = 60, DcSeconds = 30 };
+var powerPolicy = new LockScreenPowerPolicy(fakePower);
+powerPolicy.ApplyActiveScheme(powerConfig);
+Assert(fakePower.Values[schemeOne] == new PowerTimeoutValues(60, 30) && powerConfig.OriginalTimeouts[schemeOne.ToString("D")] == new PowerTimeoutValues(120, 90),
+    "应用锁屏息屏策略前应保存当前方案的 AC/DC 原值");
+fakePower.ActiveScheme = schemeTwo;
+powerPolicy.ApplyActiveScheme(powerConfig);
+Assert(fakePower.Values[schemeTwo] == new PowerTimeoutValues(60, 30) && powerConfig.OriginalTimeouts.Count == 2,
+    "切换活动电源方案后应保存并应用新方案");
+Assert(powerPolicy.RestoreAll(powerConfig).Count == 0 && fakePower.Values[schemeOne] == new PowerTimeoutValues(120, 90)
+    && fakePower.Values[schemeTwo] == new PowerTimeoutValues(300, 180) && powerConfig.OriginalTimeouts.Count == 0,
+    "关闭策略时应恢复每个电源方案的原值");
+
+var restartPolicy = new RestartPolicy();
+var restartNow = DateTimeOffset.UtcNow;
+var expectedRestartDelays = new[] { 2d, 5d, 15d, 30d, 60d };
+foreach (var expected in expectedRestartDelays)
+    Assert(restartPolicy.RegisterUnexpectedExit(restartNow)?.TotalSeconds == expected, "异常退出应采用有上限的递增退避");
+Assert(restartPolicy.RegisterUnexpectedExit(restartNow) is null, "10 分钟内第六次异常退出不得继续形成崩溃循环");
+Assert(ServicePathSafety.ParseExecutablePath("\"C:\\Program Files\\GameDayWork\\GameDayWork.Service.exe\" run") == @"C:\Program Files\GameDayWork\GameDayWork.Service.exe",
+    "服务卸载路径校验应精确解析带引号的 ImagePath");
 
 var cleanupDirectory = Path.Combine(Path.GetTempPath(), $"GameOrchestrator-LogCleanup-{Guid.NewGuid():N}");
 Directory.CreateDirectory(cleanupDirectory);
@@ -204,3 +234,16 @@ if (failures.Count > 0)
 }
 Console.WriteLine("PASS: 任务配置校验冒烟测试全部通过");
 return 0;
+
+sealed class FakeLockScreenPowerApi(Guid activeScheme, Dictionary<Guid, PowerTimeoutValues> values) : ILockScreenPowerApi
+{
+    public Guid ActiveScheme { get; set; } = activeScheme;
+    public Dictionary<Guid, PowerTimeoutValues> Values { get; } = values;
+    public Guid GetActiveScheme() => ActiveScheme;
+    public PowerTimeoutValues Read(Guid scheme) => Values[scheme];
+    public void Write(Guid scheme, PowerTimeoutValues value, bool activate = true)
+    {
+        Values[scheme] = value;
+        if (activate) ActiveScheme = scheme;
+    }
+}

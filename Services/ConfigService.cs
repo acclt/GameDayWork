@@ -6,7 +6,7 @@ namespace GameOrchestrator.Services;
 
 public sealed class ConfigService
 {
-    private const int CurrentSchemaVersion = 1;
+    private const int CurrentSchemaVersion = 2;
     private readonly string _directory;
     private readonly JsonSerializerOptions _json = new() { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
     public ConfigService(string? baseDirectory = null) =>
@@ -54,6 +54,27 @@ public sealed class ConfigService
             // v0.3.6 及更早版本的 60 秒是固定值，并非用户选择；升级后采用新的 120 秒默认值。
             config.Notifications.RunningScreenshotDelaySeconds = 120;
             config.ConfigSchemaVersion = 1;
+            changed = true;
+        }
+        if (config.ConfigSchemaVersion < 2)
+        {
+            // 新的系统服务、电源策略和登录遮罩均为显式选择，升级时保持关闭。
+            config.UseSystemService = false;
+            config.LockScreenDisplayTimeoutEnabled = false;
+            config.BlackoutAfterLogin = false;
+            config.BlackoutAfterUnlock = false;
+            config.LockScreenDisplayTimeoutAcSeconds = 60;
+            config.LockScreenDisplayTimeoutDcSeconds = 30;
+            config.ConfigSchemaVersion = 2;
+            changed = true;
+        }
+
+        var acSeconds = Math.Clamp(config.LockScreenDisplayTimeoutAcSeconds, 10, 3600);
+        var dcSeconds = Math.Clamp(config.LockScreenDisplayTimeoutDcSeconds, 10, 3600);
+        if (acSeconds != config.LockScreenDisplayTimeoutAcSeconds || dcSeconds != config.LockScreenDisplayTimeoutDcSeconds)
+        {
+            config.LockScreenDisplayTimeoutAcSeconds = acSeconds;
+            config.LockScreenDisplayTimeoutDcSeconds = dcSeconds;
             changed = true;
         }
 

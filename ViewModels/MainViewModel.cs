@@ -30,6 +30,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private string _statusText = "准备就绪";
     private string _elapsed = "00:00:00";
     private readonly DispatcherTimer _uiTimer;
+    private bool _serviceConfiguredAtLoad;
+    private string _appliedServiceSettings = "";
 
     public ObservableCollection<AutomationTaskConfig> Tasks => _config.Tasks;
     public ObservableCollection<LogEntry> Logs { get; } = [];
@@ -106,9 +108,37 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             if (_config.StartWithWindows == value) return;
             _config.StartWithWindows = value;
+            if (value && _config.UseSystemService)
+            {
+                _config.UseSystemService = false;
+                _config.LockScreenDisplayTimeoutEnabled = false;
+                OnPropertyChanged(nameof(UseSystemService));
+                OnPropertyChanged(nameof(LockScreenDisplayTimeoutEnabled));
+            }
             OnPropertyChanged();
         }
     }
+    public bool UseSystemService
+    {
+        get => _config.UseSystemService;
+        set
+        {
+            if (_config.UseSystemService == value) return;
+            _config.UseSystemService = value;
+            if (!value && _config.LockScreenDisplayTimeoutEnabled)
+            {
+                _config.LockScreenDisplayTimeoutEnabled = false;
+                OnPropertyChanged(nameof(LockScreenDisplayTimeoutEnabled));
+            }
+            if (value && _config.StartWithWindows) { _config.StartWithWindows = false; OnPropertyChanged(nameof(StartWithWindows)); }
+            OnPropertyChanged();
+        }
+    }
+    public bool LockScreenDisplayTimeoutEnabled { get => _config.LockScreenDisplayTimeoutEnabled; set { _config.LockScreenDisplayTimeoutEnabled = value; OnPropertyChanged(); } }
+    public int LockScreenDisplayTimeoutAcSeconds { get => _config.LockScreenDisplayTimeoutAcSeconds; set { _config.LockScreenDisplayTimeoutAcSeconds = Math.Clamp(value, 10, 3600); OnPropertyChanged(); } }
+    public int LockScreenDisplayTimeoutDcSeconds { get => _config.LockScreenDisplayTimeoutDcSeconds; set { _config.LockScreenDisplayTimeoutDcSeconds = Math.Clamp(value, 10, 3600); OnPropertyChanged(); } }
+    public bool BlackoutAfterLogin { get => _config.BlackoutAfterLogin; set { _config.BlackoutAfterLogin = value; OnPropertyChanged(); } }
+    public bool BlackoutAfterUnlock { get => _config.BlackoutAfterUnlock; set { _config.BlackoutAfterUnlock = value; OnPropertyChanged(); } }
     public bool StartMinimizedToTray
     {
         get => _config.StartMinimizedToTray;
@@ -240,6 +270,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public async Task InitializeAsync()
     {
         _config = await _configService.LoadAsync();
+        _serviceConfiguredAtLoad = _config.UseSystemService;
+        _appliedServiceSettings = ServiceSettingsSignature();
+        if (_config.UseSystemService && ServiceManagementClient.NeedsRepair()) _appliedServiceSettings = "";
         _config.Notifications ??= new NotificationConfig();
         _config.Notifications.Enabled = !string.IsNullOrWhiteSpace(_config.Notifications.WeComWebhookUrl);
         _config.Notifications.RunningScreenshotDelaySeconds = Math.Clamp(_config.Notifications.RunningScreenshotDelaySeconds, 1, 3600);
@@ -255,13 +288,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             await _log.WriteAsync(LogLevel.Info, $"日志自动清理完成：删除 {logCleanup.DeletedFiles} 个文件，释放 {logCleanup.FreedBytes / 1024d / 1024d:F1} MB");
         if (logCleanup.FailedFiles > 0)
             await _log.WriteAsync(LogLevel.Warning, $"日志自动清理有 {logCleanup.FailedFiles} 个文件无法删除");
-        try { _startupService.Apply(_config.StartWithWindows); }
+        try { _startupService.Apply(_config.StartWithWindows && !_config.UseSystemService); }
         catch (Exception ex) { await _log.WriteAsync(LogLevel.Warning, $"同步开机启动项失败：{ex.Message}"); }
         await _screenManager.RecoverDisplayStateAsync();
         Tasks.CollectionChanged += (_, _) => RefreshTaskIndexes();
         RefreshTaskIndexes();
         OnPropertyChanged(nameof(Tasks)); OnPropertyChanged(nameof(TaskIntervalSeconds)); OnPropertyChanged(nameof(FailurePolicy)); OnPropertyChanged(nameof(GenerateExecutionLog)); OnPropertyChanged(nameof(StartWithWindows)); OnPropertyChanged(nameof(StartMinimizedToTray));
         OnPropertyChanged(nameof(EnableScreenManager)); OnPropertyChanged(nameof(IdleTimeoutMinutes)); OnPropertyChanged(nameof(WakeBeforeTaskSeconds));
+        OnPropertyChanged(nameof(UseSystemService)); OnPropertyChanged(nameof(LockScreenDisplayTimeoutEnabled)); OnPropertyChanged(nameof(LockScreenDisplayTimeoutAcSeconds)); OnPropertyChanged(nameof(LockScreenDisplayTimeoutDcSeconds)); OnPropertyChanged(nameof(BlackoutAfterLogin)); OnPropertyChanged(nameof(BlackoutAfterUnlock));
         OnPropertyChanged(nameof(WeComWebhookUrl)); OnPropertyChanged(nameof(NotifyOnStart)); OnPropertyChanged(nameof(NotifyOnComplete)); OnPropertyChanged(nameof(NotifyOnFailure)); OnPropertyChanged(nameof(NotifyOnForcedStop)); OnPropertyChanged(nameof(CaptureTaskScreenshots)); OnPropertyChanged(nameof(RunningScreenshotDelaySeconds));
         SelectedTask = Tasks.FirstOrDefault();
         _screenManager.StartMonitoring();
@@ -269,10 +303,33 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(NextRunText));
         await _log.WriteAsync(LogLevel.Info, $"程序启动，已加载任务队列（{Tasks.Count} 项）");
     }
-    public Task SaveAsync()
+    public async Task SaveSettingsAsync()
     {
-        _startupService.Apply(_config.StartWithWindows);
-        return _configService.SaveAsync(_config);
+        if (_config.LockScreenDisplayTimeoutEnabled && !_config.UseSystemService)
+            throw new InvalidOperationException("启用“登录页和锁屏页自动息屏”前，请先启用 GameDayWork 系统服务。");
+        var serviceSettings = ServiceSettingsSignature();
+        if (serviceSettings != _appliedServiceSettings && (_config.UseSystemService || _serviceConfiguredAtLoad))
+        {
+            var result = await ServiceManagementClient.RunElevatedAsync(_config.UseSystemService,
+                _config.LockScreenDisplayTimeoutEnabled, _config.LockScreenDisplayTimeoutAcSeconds, _config.LockScreenDisplayTimeoutDcSeconds);
+            if (!result.Success) throw new InvalidOperationException(result.Message);
+            _serviceConfiguredAtLoad = _config.UseSystemService;
+            _appliedServiceSettings = serviceSettings;
+        }
+        _startupService.Apply(_config.StartWithWindows && !_config.UseSystemService);
+        await _configService.SaveAsync(_config);
+    }
+    public async Task SaveAsync()
+    {
+        _startupService.Apply(_config.StartWithWindows && !_config.UseSystemService);
+        await _configService.SaveAsync(_config);
+    }
+    private string ServiceSettingsSignature() => $"{_config.UseSystemService}:{_config.LockScreenDisplayTimeoutEnabled}:{_config.LockScreenDisplayTimeoutAcSeconds}:{_config.LockScreenDisplayTimeoutDcSeconds}";
+
+    public void OpenWindowsPowerSettings()
+    {
+        try { Process.Start(new ProcessStartInfo("ms-settings:powersleep") { UseShellExecute = true }); }
+        catch { Process.Start(new ProcessStartInfo("control.exe", "/name Microsoft.PowerOptions") { UseShellExecute = true }); }
     }
     public Task<NotificationTestResult> TestWeComNotificationAsync() => _notificationService.SendTestAsync();
     public Task<bool> EnterBlackoutAsync() => _screenManager.EnterBlackoutAsync();

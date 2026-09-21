@@ -29,6 +29,9 @@
 - 任务链结束后返回空闲监控，重新达到空闲超时后才再次进入假息屏
 - 托盘常驻；关闭主窗口只隐藏，只有托盘“退出程序”才结束进程
 - 可选用户级开机自启；Windows 登录后直接在后台托盘运行，不弹出主窗口
+- 可选独立 Windows Service：随系统启动，在 Session 0 监听登录、解锁和电源方案变化，并在用户会话启动/有界退避保活桌面端；UI、截图、快捷键和游戏任务仍只在桌面端执行
+- 可选登录页/锁屏页自动息屏，仅保存并修改活动电源方案的 `SUB_VIDEO/VIDEOCONLOCK` AC/DC 值；切换方案后自动应用，关闭或卸载时按方案恢复原值
+- 登录后遮罩与解锁后遮罩为两个独立开关，不覆盖 Windows 登录/UAC 安全桌面
 - 右上角独立设置窗口，集中管理应用启动、息屏与企业微信通知
 - 企业微信群机器人 Webhook 通知：应用启动、任务完成、任务故障、强制终止（超时或用户停止）
 - 可选任务截图通知：任务启动满 60 秒时发送正在监控的进程清单和虚拟桌面截图，任务清理验证完成后再发送包含任务栏的结束截图
@@ -40,6 +43,7 @@
 
 ```powershell
 dotnet build .\GameDayWork.csproj
+dotnet build .\GameDayWork.Service\GameDayWork.Service.csproj
 dotnet run --project .\GameDayWork.csproj
 ```
 
@@ -57,7 +61,7 @@ dotnet run --project .\tests\GameOrchestrator.SmokeTests\GameOrchestrator.SmokeT
 
 配置位于 `data/config.json`，日志位于 `logs/yyyy-MM-dd.log`。程序启动时会删除超过 30 天的日志；日志总量超过 100 MB 时从最旧文件开始清理，并保留当天日志。启用开机自启后，程序会在当前用户的 Windows“启动”文件夹创建 `GameDayWork 开机自启.lnk`，禁用时删除。进程规则默认禁止按名称兜底，避免误杀同名进程。
 
-息屏管理器不修改 Windows 电源计划，也不调用系统息屏、屏保、锁屏或关闭显示器 API。它仅降低受支持显示器的亮度并覆盖黑色窗口。请先在 Windows 中手动把“关闭显示器”和“睡眠”设为“从不”。发布流程详见 [PORTABLE_RELEASE.md](PORTABLE_RELEASE.md)。
+普通桌面的息屏管理器不调用系统息屏、屏保、锁屏或关闭显示器 API；它仅降低受支持显示器的亮度并覆盖黑色窗口。用户明确开启系统服务中的“登录页和锁屏页自动息屏”后，服务只修改 `VIDEOCONLOCK`，不会修改普通桌面的 `VIDEOIDLE`、睡眠、休眠、亮度或合盖行为。发布流程详见 [PORTABLE_RELEASE.md](PORTABLE_RELEASE.md)。
 
 开发中已确认的问题见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md)。
 

@@ -8,10 +8,16 @@ public partial class SettingsWindow : Window
 {
     private sealed record SettingsSnapshot(
         bool StartWithWindows,
+        bool UseSystemService,
         bool StartMinimizedToTray,
         bool EnableScreenManager,
         int IdleTimeoutMinutes,
         int WakeBeforeTaskSeconds,
+        bool LockScreenDisplayTimeoutEnabled,
+        int LockScreenDisplayTimeoutAcSeconds,
+        int LockScreenDisplayTimeoutDcSeconds,
+        bool BlackoutAfterLogin,
+        bool BlackoutAfterUnlock,
         string WeComWebhookUrl,
         bool NotifyOnStart,
         bool NotifyOnComplete,
@@ -32,10 +38,16 @@ public partial class SettingsWindow : Window
         DataContext = viewModel;
         _snapshot = new(
             viewModel.StartWithWindows,
+            viewModel.UseSystemService,
             viewModel.StartMinimizedToTray,
             viewModel.EnableScreenManager,
             viewModel.IdleTimeoutMinutes,
             viewModel.WakeBeforeTaskSeconds,
+            viewModel.LockScreenDisplayTimeoutEnabled,
+            viewModel.LockScreenDisplayTimeoutAcSeconds,
+            viewModel.LockScreenDisplayTimeoutDcSeconds,
+            viewModel.BlackoutAfterLogin,
+            viewModel.BlackoutAfterUnlock,
             viewModel.WeComWebhookUrl,
             viewModel.NotifyOnStart,
             viewModel.NotifyOnComplete,
@@ -56,12 +68,13 @@ public partial class SettingsWindow : Window
                 MessageBox.Show(this, validationError, "Webhook 地址无效", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
-            await _viewModel.SaveAsync();
+            await _viewModel.SaveSettingsAsync();
             _saved = true;
             DialogResult = true;
         }
         catch (Exception ex)
         {
+            ApplySnapshot();
             MessageBox.Show(this, ex.Message, "保存设置失败", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
@@ -95,11 +108,22 @@ public partial class SettingsWindow : Window
     {
         if (_saved || _restored) return;
         _restored = true;
+        ApplySnapshot();
+    }
+
+    private void ApplySnapshot()
+    {
         _viewModel.StartWithWindows = _snapshot.StartWithWindows;
+        _viewModel.UseSystemService = _snapshot.UseSystemService;
         _viewModel.StartMinimizedToTray = _snapshot.StartMinimizedToTray;
         _viewModel.EnableScreenManager = _snapshot.EnableScreenManager;
         _viewModel.IdleTimeoutMinutes = _snapshot.IdleTimeoutMinutes;
         _viewModel.WakeBeforeTaskSeconds = _snapshot.WakeBeforeTaskSeconds;
+        _viewModel.LockScreenDisplayTimeoutEnabled = _snapshot.LockScreenDisplayTimeoutEnabled;
+        _viewModel.LockScreenDisplayTimeoutAcSeconds = _snapshot.LockScreenDisplayTimeoutAcSeconds;
+        _viewModel.LockScreenDisplayTimeoutDcSeconds = _snapshot.LockScreenDisplayTimeoutDcSeconds;
+        _viewModel.BlackoutAfterLogin = _snapshot.BlackoutAfterLogin;
+        _viewModel.BlackoutAfterUnlock = _snapshot.BlackoutAfterUnlock;
         _viewModel.WeComWebhookUrl = _snapshot.WeComWebhookUrl;
         _viewModel.NotifyOnStart = _snapshot.NotifyOnStart;
         _viewModel.NotifyOnComplete = _snapshot.NotifyOnComplete;
@@ -108,4 +132,6 @@ public partial class SettingsWindow : Window
         _viewModel.CaptureTaskScreenshots = _snapshot.CaptureTaskScreenshots;
         _viewModel.RunningScreenshotDelaySeconds = _snapshot.RunningScreenshotDelaySeconds;
     }
+
+    private void OpenWindowsPowerSettings_Click(object sender, RoutedEventArgs e) => _viewModel.OpenWindowsPowerSettings();
 }

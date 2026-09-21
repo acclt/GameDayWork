@@ -16,11 +16,23 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="tests\**\*.cs" />
+    <Compile Remove="GameDayWork.Core\**\*.cs" />
+    <Compile Remove="GameDayWork.Service\**\*.cs" />
     <EmbeddedResource Remove="tests\**\*" />
+    <EmbeddedResource Remove="GameDayWork.Core\**\*" />
+    <EmbeddedResource Remove="GameDayWork.Service\**\*" />
     <Page Remove="tests\**\*.xaml" />
+    <Page Remove="GameDayWork.Core\**\*.xaml" />
+    <Page Remove="GameDayWork.Service\**\*.xaml" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="System.Management" Version="8.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="Services\LockScreenPowerPolicy.cs" />
+    <Compile Remove="Services\RestartPolicy.cs" />
+    <Compile Remove="Services\GameDayWorkServiceManager.cs" />
+    <ProjectReference Include="GameDayWork.Core\GameDayWork.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Resource Include="Assets\GameDayWork-Idle.ico" />

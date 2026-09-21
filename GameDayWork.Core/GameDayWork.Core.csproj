@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>GameOrchestrator</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\Services\LockScreenPowerPolicy.cs" Link="LockScreenPowerPolicy.cs" />
+    <Compile Include="..\Services\RestartPolicy.cs" Link="RestartPolicy.cs" />
+  </ItemGroup>
+</Project>
