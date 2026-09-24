@@ -25,6 +25,7 @@
 - 进入假息屏前将鼠标移到主屏中心；假息屏期间使用线程级光标隐藏，并保留窗口光标钩子作为补充保护
 - 假息屏期间监听任务栏层级变化，仅在任务栏升到遮罩上方时重新置顶遮罩，并以 2 秒低频检查兜底
 - `GetLastInputInfo` 空闲检测，默认 30 分钟进入假息屏，鼠标或键盘输入立即恢复
+- 检测实际音频输出；播放期间暂停自动假息屏计时，自动遮罩期间开始播放则恢复画面，停止后重新计算空闲时间
 - 定时任务在 `PrepareAt = ScheduledAt - WakeBefore` 提前恢复画面，在 `LaunchAt` 准点串行启动
 - 任务链结束后返回空闲监控，重新达到空闲超时后才再次进入假息屏
 - 托盘常驻；关闭主窗口只隐藏，只有托盘“退出程序”才结束进程
@@ -55,7 +56,7 @@ dotnet run --project .\tests\GameOrchestrator.SmokeTests\GameOrchestrator.SmokeT
 发布 Windows x64 便携包：
 
 ```powershell
-.\scripts\Publish-Portable.ps1 -Version 0.3.5
+.\scripts\Publish-Portable.ps1 -Version 0.4.3
 ```
 
 配置位于 `data/config.json`，日志位于 `logs/yyyy-MM-dd.log`。程序启动时会删除超过 30 天的日志；日志总量超过 100 MB 时从最旧文件开始清理，并保留当天日志。启用开机自启后，程序会在当前用户的 Windows“启动”文件夹创建 `GameDayWork 开机自启.lnk`，禁用时删除。进程规则默认禁止按名称兜底，避免误杀同名进程。

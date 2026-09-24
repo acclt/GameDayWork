@@ -7,13 +7,13 @@ GameDayWork 仅发布 Windows x64 便携版，不制作安装程序。默认不�
 需要 .NET 8 SDK。在仓库根目录执行：
 
 ```powershell
-.\scripts\Publish-Portable.ps1 -Version 0.4.2
+.\scripts\Publish-Portable.ps1 -Version 0.4.3
 ```
 
 产物为：
 
 ```text
-artifacts/GameDayWork-v0.4.2-win-x64-portable.zip
+artifacts/GameDayWork-v0.4.3-win-x64-portable.zip
 ```
 
 ## GitHub Releases
@@ -21,8 +21,8 @@ artifacts/GameDayWork-v0.4.2-win-x64-portable.zip
 推送符合 `vX.Y.Z` 格式的标签后，`.github/workflows/release.yml` 会构建同名便携包并创建 GitHub Release：
 
 ```powershell
-git tag v0.4.2
-git push origin v0.4.2
+git tag v0.4.3
+git push origin v0.4.3
 ```
 
 创建标签前，应先完成下方人工检查，且不要使用真实五项目做自动化试跑。
@@ -38,6 +38,7 @@ git push origin v0.4.2
 7. 验证无服务模式：启用传统开机自启，确认当前用户“启动”文件夹生成精确命名的快捷方式；取消后确认删除。
 8. 验证服务模式：以管理员权限启用服务，重启并在登录前确认服务运行；登录后确认桌面端仅启动一个实例。托盘明确退出后确认服务不会立即拉起；结束进程模拟异常退出，确认按 2/5/15/30/60 秒退避且 10 分钟内最多 5 次。
 9. 启用登录页/锁屏页自动息屏，以 AC/DC 分别验证设定；切换活动电源方案后确认新方案被应用；关闭设置和运行“卸载系统服务.cmd”分别确认各方案原值恢复。确认 VIDEOIDLE、睡眠、休眠、亮度与合盖设置未变化。
+10. 保持键鼠无输入并播放有声内容，确认超过空闲超时也不会自动假息屏；停止播放后确认重新计算完整空闲时间。系统静音和音量为零时应按无声音处理。
 11. 移动便携目录后重新启用服务，确认服务 ImagePath 与桌面端路径被修复。运行卸载脚本两次，确认幂等且不删除 `data`、`logs` 或便携包目录。
 
 ## BGI 安全确认

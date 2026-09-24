@@ -22,6 +22,7 @@ public sealed class ScreenManager : IAsyncDisposable
     private const uint GaRoot = 2;
     private readonly LoggingService _log;
     private readonly BrightnessManager _brightness;
+    private readonly AudioOutputMonitor _audioOutput;
     private readonly SemaphoreSlim _transitionGate = new(1, 1);
     private readonly List<BlackoutOverlayWindow> _overlays = [];
     private readonly System.Windows.Threading.DispatcherTimer _inputTimer;
@@ -31,6 +32,7 @@ public sealed class ScreenManager : IAsyncDisposable
     private bool _disposed;
     private bool _inputTickRunning;
     private bool _monitoringStarted;
+    private bool _automaticBlackout;
     private uint _blackoutInputTick;
     private uint _idleMonitoringSinceTick;
     private DateTimeOffset _readyAfter = DateTimeOffset.MinValue;
@@ -47,6 +49,7 @@ public sealed class ScreenManager : IAsyncDisposable
     {
         _log = log;
         _brightness = brightness;
+        _audioOutput = new AudioOutputMonitor(log);
         _inputTimer = new System.Windows.Threading.DispatcherTimer(
             TimeSpan.FromMilliseconds(500),
             System.Windows.Threading.DispatcherPriority.Background,
@@ -69,16 +72,23 @@ public sealed class ScreenManager : IAsyncDisposable
         if (_monitoringStarted) return;
         _monitoringStarted = true;
         _idleMonitoringSinceTick = GetLastInputTick();
+        _audioOutput.Start();
         _inputTimer.Start();
     }
 
-    public async Task<bool> EnterBlackoutAsync(CancellationToken token = default)
+    public Task<bool> EnterBlackoutAsync(CancellationToken token = default) => EnterBlackoutAsync(false, token);
+
+    private async Task<bool> EnterBlackoutAsync(bool automatic, CancellationToken token)
     {
         await _transitionGate.WaitAsync(token);
         try
         {
             ThrowIfDisposed();
-            if (State == ScreenManagerState.Blackout) return true;
+            if (State == ScreenManagerState.Blackout)
+            {
+                if (!automatic) _automaticBlackout = false;
+                return true;
+            }
             if (!Enabled)
             {
                 await _log.WriteAsync(LogLevel.Warning, "Screen Manager 已禁用，未进入假息屏");
@@ -94,11 +104,13 @@ public sealed class ScreenManager : IAsyncDisposable
             await _brightness.DimForBlackoutAsync(token);
             await ShowOverlaysAsync();
             _blackoutInputTick = GetLastInputTick();
+            _automaticBlackout = automatic;
             await SetStateAsync(ScreenManagerState.Blackout, "已进入假息屏");
             return true;
         }
         catch
         {
+            _automaticBlackout = false;
             await CloseOverlaysCoreAsync(CancellationToken.None);
             throw;
         }
@@ -355,6 +367,7 @@ public sealed class ScreenManager : IAsyncDisposable
         if (State == state) return;
         var previous = State;
         State = state;
+        if (state != ScreenManagerState.Blackout) _automaticBlackout = false;
         if (state == ScreenManagerState.IdleMonitoring) _idleMonitoringSinceTick = GetTickCount();
         StateChanged?.Invoke(state);
         await _log.WriteAsync(LogLevel.Info, $"屏幕状态：{previous} → {state}；{logMessage}");
@@ -380,13 +393,23 @@ public sealed class ScreenManager : IAsyncDisposable
                     await _log.WriteAsync(LogLevel.Info, "检测到鼠标或键盘输入，恢复显示");
                     await ExitBlackoutAsync();
                 }
+                else if (_automaticBlackout && _audioOutput.HasRecentOutput)
+                {
+                    await _log.WriteAsync(LogLevel.Info, "检测到音频输出，恢复显示");
+                    await ExitBlackoutAsync();
+                }
                 return;
             }
 
             if (State != ScreenManagerState.IdleMonitoring) return;
+            if (_audioOutput.HasRecentOutput)
+            {
+                _idleMonitoringSinceTick = GetTickCount();
+                return;
+            }
             var timeoutMilliseconds = (uint)Math.Clamp(IdleTimeout.TotalMilliseconds, 1_000d, uint.MaxValue);
             if (ElapsedSince(lastInputTick) >= timeoutMilliseconds && ElapsedSince(_idleMonitoringSinceTick) >= timeoutMilliseconds)
-                await EnterBlackoutAsync();
+                await EnterBlackoutAsync(true, CancellationToken.None);
         }
         catch (Exception ex)
         {
@@ -448,6 +471,7 @@ public sealed class ScreenManager : IAsyncDisposable
         await _transitionGate.WaitAsync();
         try { await CloseOverlaysCoreAsync(CancellationToken.None, waitForVisualStability: false); }
         finally { _transitionGate.Release(); _transitionGate.Dispose(); }
+        await _audioOutput.DisposeAsync();
     }
 
     [DllImport("user32.dll")]

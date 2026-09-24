@@ -8,7 +8,7 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>GameDayWork</AssemblyName>
     <RootNamespace>GameOrchestrator</RootNamespace>
-    <Version>0.4.2</Version>
+    <Version>0.4.3</Version>
     <ApplicationIcon>Assets\GameDayWork.ico</ApplicationIcon>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <ApplicationManifest>app.manifest</ApplicationManifest>
@@ -26,6 +26,7 @@
     <Page Remove="GameDayWork.Service\**\*.xaml" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="NAudio.Wasapi" Version="2.2.1" />
     <PackageReference Include="System.Management" Version="8.0.0" />
   </ItemGroup>
   <ItemGroup>
