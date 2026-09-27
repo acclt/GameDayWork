@@ -22,7 +22,9 @@ public partial class MainWindow : Window
     private const uint ModAlt = 0x0001;
     private const uint ModControl = 0x0002;
     private const uint ModNoRepeat = 0x4000;
+    private const int WmGetMinMaxInfo = 0x0024;
     private const int WmHotKey = 0x0312;
+    private const uint MonitorDefaultToNearest = 0x00000002;
     private const int VkControl = 0x11;
     private const int VkMenu = 0x12;
     private const int VkZ = 0x5A;
@@ -102,10 +104,34 @@ public partial class MainWindow : Window
 
     private nint WindowMessageHook(nint hwnd, int message, nint wParam, nint lParam, ref bool handled)
     {
+        if (message == WmGetMinMaxInfo)
+        {
+            ConstrainMaximizedBounds(hwnd, lParam);
+            handled = true;
+            return nint.Zero;
+        }
+
         if (message != WmHotKey || wParam.ToInt32() != BlackoutHotKeyId) return nint.Zero;
         handled = true;
         _ = EnterBlackoutFromHotKeyAsync();
         return nint.Zero;
+    }
+
+    private static void ConstrainMaximizedBounds(nint windowHandle, nint minMaxInfoPointer)
+    {
+        var monitor = MonitorFromWindow(windowHandle, MonitorDefaultToNearest);
+        if (monitor == nint.Zero) return;
+
+        var monitorInfo = new MonitorInfo { Size = (uint)Marshal.SizeOf<MonitorInfo>() };
+        if (!GetMonitorInfo(monitor, ref monitorInfo)) return;
+
+        var minMaxInfo = Marshal.PtrToStructure<MinMaxInfo>(minMaxInfoPointer);
+        minMaxInfo.MaxPosition.X = monitorInfo.WorkArea.Left - monitorInfo.MonitorArea.Left;
+        minMaxInfo.MaxPosition.Y = monitorInfo.WorkArea.Top - monitorInfo.MonitorArea.Top;
+        minMaxInfo.MaxSize.X = monitorInfo.WorkArea.Right - monitorInfo.WorkArea.Left;
+        minMaxInfo.MaxSize.Y = monitorInfo.WorkArea.Bottom - monitorInfo.WorkArea.Top;
+        minMaxInfo.MaxTrackSize = minMaxInfo.MaxSize;
+        Marshal.StructureToPtr(minMaxInfo, minMaxInfoPointer, false);
     }
 
     private async Task EnterBlackoutFromHotKeyAsync()
@@ -150,7 +176,6 @@ public partial class MainWindow : Window
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("显示主窗口", null, (_, _) => ShowMainWindow());
         menu.Items.Add("进入黑屏", null, async (_, _) => await RunTrayActionAsync(_viewModel.EnterBlackoutAsync));
-        menu.Items.Add("退出黑屏", null, async (_, _) => await RunTrayActionAsync(async () => { await _viewModel.ExitBlackoutAsync(); return true; }));
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("退出程序", null, async (_, _) => await ExitApplicationAsync());
         var icon = new Forms.NotifyIcon
@@ -395,4 +420,46 @@ public partial class MainWindow : Window
 
     [DllImport("user32.dll")]
     private static extern short GetAsyncKeyState(int virtualKey);
+
+    [DllImport("user32.dll")]
+    private static extern nint MonitorFromWindow(nint windowHandle, uint flags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetMonitorInfo(nint monitor, ref MonitorInfo monitorInfo);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint
+    {
+        public int X;
+        public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MinMaxInfo
+    {
+        public NativePoint Reserved;
+        public NativePoint MaxSize;
+        public NativePoint MaxPosition;
+        public NativePoint MinTrackSize;
+        public NativePoint MaxTrackSize;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+    private struct MonitorInfo
+    {
+        public uint Size;
+        public NativeRect MonitorArea;
+        public NativeRect WorkArea;
+        public uint Flags;
+    }
 }

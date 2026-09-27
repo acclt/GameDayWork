@@ -12,6 +12,7 @@ public sealed class ScreenManager : IAsyncDisposable
 {
     private static readonly TimeSpan VisualStabilityDelay = TimeSpan.FromMilliseconds(400);
     private static readonly TimeSpan ZOrderGuardInterval = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan AutomaticBlackoutRetryDelay = TimeSpan.FromMinutes(1);
     private const uint EventSystemForeground = 0x0003;
     private const uint EventObjectShow = 0x8002;
     private const uint EventObjectReorder = 0x8004;
@@ -33,9 +34,11 @@ public sealed class ScreenManager : IAsyncDisposable
     private bool _inputTickRunning;
     private bool _monitoringStarted;
     private bool _automaticBlackout;
+    private bool _sessionLocked;
     private uint _blackoutInputTick;
     private uint _idleMonitoringSinceTick;
     private DateTimeOffset _readyAfter = DateTimeOffset.MinValue;
+    private DateTimeOffset _automaticBlackoutRetryAfter = DateTimeOffset.MinValue;
     private int _cursorHideAdjustments;
     private int _zOrderRepairQueued;
     private DateTimeOffset _lastZOrderRepairLog = DateTimeOffset.MinValue;
@@ -62,6 +65,7 @@ public sealed class ScreenManager : IAsyncDisposable
             Application.Current.Dispatcher);
         _winEventCallback = WinEventCallback;
         SystemEvents.DisplaySettingsChanged += DisplaySettingsChanged;
+        SystemEvents.SessionSwitch += SessionSwitch;
     }
 
     public Task RecoverDisplayStateAsync(CancellationToken token = default) => _brightness.RecoverPendingAsync(token);
@@ -385,6 +389,10 @@ public sealed class ScreenManager : IAsyncDisposable
                 return;
             }
 
+            // The interactive desktop is unavailable while Windows is locked. In that state
+            // cursor movement and overlay creation are not useful and SetCursorPos can fail.
+            if (_sessionLocked) return;
+
             var lastInputTick = GetLastInputTick();
             if (State == ScreenManagerState.Blackout)
             {
@@ -407,9 +415,23 @@ public sealed class ScreenManager : IAsyncDisposable
                 _idleMonitoringSinceTick = GetTickCount();
                 return;
             }
+            if (DateTimeOffset.Now < _automaticBlackoutRetryAfter) return;
             var timeoutMilliseconds = (uint)Math.Clamp(IdleTimeout.TotalMilliseconds, 1_000d, uint.MaxValue);
             if (ElapsedSince(lastInputTick) >= timeoutMilliseconds && ElapsedSince(_idleMonitoringSinceTick) >= timeoutMilliseconds)
-                await EnterBlackoutAsync(true, CancellationToken.None);
+            {
+                try
+                {
+                    if (await EnterBlackoutAsync(true, CancellationToken.None))
+                        _automaticBlackoutRetryAfter = DateTimeOffset.MinValue;
+                }
+                catch (Exception ex)
+                {
+                    _automaticBlackoutRetryAfter = DateTimeOffset.Now + AutomaticBlackoutRetryDelay;
+                    await _log.WriteAsync(
+                        LogLevel.Error,
+                        $"自动假息屏失败：{ex.Message}；将在 {AutomaticBlackoutRetryDelay.TotalSeconds:F0} 秒后重试");
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -433,6 +455,37 @@ public sealed class ScreenManager : IAsyncDisposable
     {
         if (_disposed || State != ScreenManagerState.Blackout) return;
         _ = Application.Current.Dispatcher.InvokeAsync(RebuildOverlaysAfterDisplayChangeAsync).Task.Unwrap();
+    }
+
+    private void SessionSwitch(object sender, SessionSwitchEventArgs e)
+    {
+        if (_disposed || e.Reason is not (SessionSwitchReason.SessionLock or SessionSwitchReason.SessionUnlock)) return;
+        _ = Application.Current.Dispatcher.InvokeAsync(() => HandleSessionSwitchAsync(e.Reason)).Task.Unwrap();
+    }
+
+    private async Task HandleSessionSwitchAsync(SessionSwitchReason reason)
+    {
+        try
+        {
+            if (_disposed) return;
+            _sessionLocked = reason == SessionSwitchReason.SessionLock;
+            _idleMonitoringSinceTick = GetTickCount();
+            _automaticBlackoutRetryAfter = DateTimeOffset.MinValue;
+
+            if (_sessionLocked)
+            {
+                if (State == ScreenManagerState.Blackout) await ExitBlackoutAsync();
+                await _log.WriteAsync(LogLevel.Info, "检测到 Windows 锁屏，已暂停自动假息屏");
+            }
+            else
+            {
+                await _log.WriteAsync(LogLevel.Info, "检测到 Windows 解锁，已重新计算空闲时间");
+            }
+        }
+        catch (Exception ex)
+        {
+            await _log.WriteAsync(LogLevel.Warning, $"处理 Windows 会话状态变化失败：{ex.Message}");
+        }
     }
 
     private async Task RebuildOverlaysAfterDisplayChangeAsync()
@@ -468,6 +521,7 @@ public sealed class ScreenManager : IAsyncDisposable
         _inputTimer.Stop();
         StopZOrderGuard();
         SystemEvents.DisplaySettingsChanged -= DisplaySettingsChanged;
+        SystemEvents.SessionSwitch -= SessionSwitch;
         await _transitionGate.WaitAsync();
         try { await CloseOverlaysCoreAsync(CancellationToken.None, waitForVisualStability: false); }
         finally { _transitionGate.Release(); _transitionGate.Dispose(); }
