@@ -39,6 +39,59 @@ Assert(!migratedJson.Contains("blackoutAfterLogin", StringComparison.OrdinalIgno
     "配置文件不应继续保存登录或解锁后立即遮罩选项");
 Directory.Delete(migrationDirectory, true);
 
+var groupConfigDirectory = Path.Combine(Path.GetTempPath(), $"GameOrchestrator-Groups-{Guid.NewGuid():N}");
+try
+{
+    var configService = new ConfigService(groupConfigDirectory);
+    var fresh = await configService.LoadAsync();
+    Assert(fresh.Tasks.Count == 0, "首次启动任务列表必须为空，不应预置五项任务");
+    Assert(fresh.IdleTimeoutMinutes == 5, "空闲息屏默认应为五分钟");
+    var independent = new AutomationTaskConfig { Name = "独立任务", CompletionAction = TaskCompletionAction.RunNext };
+    var unrelated = new AutomationTaskConfig { Name = "其他独立任务" };
+    var first = new AutomationTaskConfig { Name = "第一项", ScheduledStartTime = "01:00" };
+    var skipped = new AutomationTaskConfig { Name = "禁用项", Enabled = false };
+    var second = new AutomationTaskConfig { Name = "第二项", CompletionAction = TaskCompletionAction.None };
+    var group = new AutomationTaskConfig { Name = "任务组", IsGroup = true, ScheduledStartTime = "09:30", Children = [first, skipped, second] };
+    fresh.Tasks.Add(independent); fresh.Tasks.Add(group); fresh.Tasks.Add(unrelated);
+    Assert(TaskPlanService.Expand([independent]).SequenceEqual([independent]), "独立任务不得继续执行其他任务，即使遗留完成后操作为 RunNext");
+    Assert(TaskPlanService.Expand([group]).SequenceEqual([first, second]), "任务组必须按顺序执行启用的组内任务，忽略成员完成后操作");
+    Assert(group.GroupTaskDurationMinutes == 45 && group.GroupTaskIntervalSeconds == 5, "任务组默认每项持续45分钟、清理后间隔5秒");
+    Assert(first.EffectiveMaxRunMinutes == 45 && second.EffectiveMaxRunMinutes == 45 && first.IntervalAfterSeconds == 5 && second.IntervalAfterSeconds == 0,
+        "组设置应控制每项任务运行上限及任务间隔，组末尾不附加等待");
+    group.GroupTaskDurationMinutes = 23; group.GroupTaskIntervalSeconds = 7;
+    TaskPlanService.Expand([group, independent]);
+    Assert(first.EffectiveMaxRunMinutes == 23 && first.IntervalAfterSeconds == 7 && independent.EffectiveMaxRunMinutes == independent.MaxRunMinutes && independent.IntervalAfterSeconds == 0,
+        "自定义组设置必须生效，且不得影响独立任务");
+    first.ProgramPath = Environment.ProcessPath!;
+    first.ScheduledStartTime = "不使用的子任务时间";
+    Assert(!validator.Validate([first]).Any(issue => issue.Message.Contains("定时启动")), "组内任务不应校验自身时间，应由任务组统一调度");
+    unrelated.ScheduledStartTime = "无效时间";
+    Assert(validator.Validate([unrelated]).Any(issue => issue.Message.Contains("定时启动")), "独立任务仍须校验自身启动时间");
+    Assert(TaskPlanService.ManualPlan(fresh.Tasks, first).SequenceEqual([first, second]), "从组内任务启动时应继续组内后续任务");
+    Assert(TaskPlanService.ManualPlan(fresh.Tasks, second).SequenceEqual([second]), "组内最后一项不得继续组外任务");
+    group.Enabled = false;
+    Assert(TaskPlanService.Expand([group]).Count == 0 && TaskPlanService.ManualPlan(fresh.Tasks, first).Count == 0, "禁用任务组不得执行组内任务");
+    group.Enabled = true; group.IsExpanded = true;
+    first.ToolType = "BGI"; first.Name = "任意名称";
+    Assert(first.RepositoryUrl.Contains("better-genshin-impact"), "适配类型应独立于任务名称");
+    first.ToolType = "自定义任务";
+    Assert(first.RepositoryUrl == "", "自定义任务不得根据名称推断适配类型");
+    await configService.SaveAsync(fresh);
+    var roundtrip = await configService.LoadAsync();
+    Assert(roundtrip.Tasks.Count == 3 && roundtrip.Tasks[1].IsGroup && roundtrip.Tasks[1].Children.Select(child => child.Id).SequenceEqual(group.Children.Select(child => child.Id)), "任务组成员及顺序应持久保存");
+    Assert(!roundtrip.Tasks[1].IsExpanded, "重新打开时任务组默认折叠");
+    Assert(roundtrip.Tasks[1].ScheduledStartTime == "09:30", "任务组统一运行时间应持久保存");
+    Assert(roundtrip.Tasks[1].GroupTaskDurationMinutes == 23 && roundtrip.Tasks[1].GroupTaskIntervalSeconds == 7, "任务持续时间和任务间隔应持久保存");
+    Assert(roundtrip.Tasks[1].Children[0].GroupRunMinutes is null && roundtrip.Tasks[1].Children[0].IntervalAfterSeconds is null,
+        "组运行参数不得写入子任务配置");
+    Assert(new AutomationTaskConfig().CompletionAction == TaskCompletionAction.None, "独立任务默认完成后无操作");
+}
+finally
+{
+    // The directory is an exact unique test fixture path under the system temp directory.
+    if (Directory.Exists(groupConfigDirectory)) Directory.Delete(groupConfigDirectory, true);
+}
+
 var schemeOne = Guid.NewGuid();
 var schemeTwo = Guid.NewGuid();
 var fakePower = new FakeLockScreenPowerApi(schemeOne,
@@ -179,16 +232,23 @@ if (File.Exists(commandProcessor))
     var secondProcessTask = CreateShortProcessTask("进程退出测试二");
     var processEvents = new TaskEventBus();
     var completionOrder = new List<string>();
+    DateTimeOffset? firstFinished = null;
+    DateTimeOffset? secondStarted = null;
     processEvents.Subscribe<TaskCompletedEvent>(message => completionOrder.Add(message.Session.TaskName));
+    processEvents.Subscribe<TaskCompletedEvent>(message => { if (message.Session.TaskName == firstProcessTask.Name) firstFinished = DateTimeOffset.UtcNow; });
+    processEvents.Subscribe<TaskStartedEvent>(message => { if (message.Session.TaskName == secondProcessTask.Name) secondStarted = DateTimeOffset.UtcNow; });
     var processLog = new LoggingService();
     var processRunner = new TaskRunnerService(processMonitor, new ProcessCleanupService(processMonitor, processLog), processLog, processEvents);
     var processQueue = new TaskQueueService(processRunner, processLog, processEvents);
-    await processQueue.RunAsync([firstProcessTask, secondProcessTask], 0, FailurePolicy.ForceCleanupAndContinue);
+    var timedGroup = new AutomationTaskConfig { IsGroup = true, Children = [firstProcessTask, secondProcessTask], GroupTaskIntervalSeconds = 1, GroupTaskDurationMinutes = 45 };
+    await processQueue.RunAsync(TaskPlanService.Expand([timedGroup]), 0, FailurePolicy.ForceCleanupAndContinue);
     Assert(processQueue.Status == QueueRunStatus.Completed, "指定进程退出后队列应正常完成");
     Assert(firstProcessTask.Status == TaskRunStatus.Completed && secondProcessTask.Status == TaskRunStatus.Completed,
         "指定进程退出后应自动执行并完成下一项");
     Assert(completionOrder.SequenceEqual([firstProcessTask.Name, secondProcessTask.Name]),
         "指定进程退出后的任务完成顺序应保持不变");
+    Assert(firstFinished.HasValue && secondStarted.HasValue && secondStarted.Value - firstFinished.Value >= TimeSpan.FromMilliseconds(950),
+        "组内间隔必须从第一项完成清理后计算，而非从启动时间计算");
 
     var forcedStopTask = CreateShortProcessTask("强制终止记录测试");
     forcedStopTask.Arguments = "/d /s /c \"ping.exe 127.0.0.1 -n 30 > nul\"";
@@ -230,6 +290,8 @@ if (args.Contains("--screenshot", StringComparer.OrdinalIgnoreCase))
         Console.WriteLine($"SCREENSHOT: {screenshot.Width}x{screenshot.Height} {screenshot.Format} {screenshot.Data.Length / 1024d:F1} KB");
     }
 }
+
+await MuMuCleanupTests.RunAsync(Assert);
 
 if (failures.Count > 0)
 {

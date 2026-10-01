@@ -16,18 +16,35 @@ public sealed class AutomationTaskConfig : ObservableObject
     private string _completionLogPath = "";
     private string _completionKeyword = "";
     private string _completionFailureKeyword = "";
-    private string _description = "自动化日常任务，完成后自动清理相关进程并执行下一项。";
+    private string _description = "";
     private int _maxRunMinutes = 60;
     private int _cleanupWaitSeconds = 3;
     private int _cleanupRetries = 3;
     private bool _runAsAdministrator;
     private string _scheduledStartTime = "";
-    private TaskCompletionAction _completionAction = TaskCompletionAction.RunNext;
+    private TaskCompletionAction _completionAction = TaskCompletionAction.None;
+    private string _toolType = "自定义任务";
+    private bool _isExpanded;
+    private int _groupTaskDurationMinutes = 45;
+    private int _groupTaskIntervalSeconds = 5;
     private TaskRunStatus _status = TaskRunStatus.Idle;
     private int _displayIndex;
     private int? _wakeBeforeTaskSeconds;
 
     public Guid Id { get; set; } = Guid.NewGuid();
+    public bool IsGroup { get; set; }
+    public ObservableCollection<AutomationTaskConfig> Children { get; set; } = [];
+    public int GroupTaskDurationMinutes { get => _groupTaskDurationMinutes; set => SetProperty(ref _groupTaskDurationMinutes, Math.Max(1, value)); }
+    public int GroupTaskIntervalSeconds { get => _groupTaskIntervalSeconds; set => SetProperty(ref _groupTaskIntervalSeconds, Math.Max(0, value)); }
+    [JsonIgnore] public int? GroupRunMinutes { get; internal set; }
+    [JsonIgnore] public int? IntervalAfterSeconds { get; internal set; }
+    [JsonIgnore] public int EffectiveMaxRunMinutes => GroupRunMinutes ?? MaxRunMinutes;
+    public string ToolType { get => _toolType; set { if (SetProperty(ref _toolType, value)) { OnPropertyChanged(nameof(RepositoryUrl)); OnPropertyChanged(nameof(IconText)); } } }
+    [JsonIgnore] public bool IsExpanded { get => _isExpanded; set { if (SetProperty(ref _isExpanded, value)) OnPropertyChanged(nameof(GroupIndicator)); } }
+    [JsonIgnore] public string GroupIndicator => IsGroup ? (IsExpanded ? "▾" : "▸") : "";
+    [JsonIgnore] public bool IsGroupChild { get; internal set; }
+    [JsonIgnore] public string GroupScheduledStartTime { get; internal set; } = "";
+    [JsonIgnore] public string ScheduleLabel => $"下次运行时间：{NextExecutionText}";
     public string Name
     {
         get => _name;
@@ -38,12 +55,12 @@ public sealed class AutomationTaskConfig : ObservableObject
             OnPropertyChanged(nameof(RepositoryUrl));
         }
     }
-    [JsonIgnore] public string IconText => string.IsNullOrWhiteSpace(Name) ? "?" : Name[..1].ToUpperInvariant();
+    [JsonIgnore] public string IconText => IsGroup ? "组" : string.IsNullOrWhiteSpace(Name) ? "?" : Name[..1].ToUpperInvariant();
     [JsonIgnore] public string RepositoryUrl
     {
         get
         {
-            var name = Name.Trim().ToUpperInvariant();
+            var name = ToolType.Trim().ToUpperInvariant();
             if (name.StartsWith("BGI", StringComparison.Ordinal)) return "https://github.com/babalae/better-genshin-impact/releases";
             if (name.StartsWith("MAA", StringComparison.Ordinal) || name.StartsWith("MMA", StringComparison.Ordinal)) return "https://github.com/MaaAssistantArknights/MaaAssistantArknights/releases";
             if (name.StartsWith("ZOG", StringComparison.Ordinal)) return "https://github.com/OneDragon-Anything/ZenlessZoneZero-OneDragon/releases";
@@ -72,7 +89,7 @@ public sealed class AutomationTaskConfig : ObservableObject
         get => _scheduledStartTime;
         set
         {
-            if (SetProperty(ref _scheduledStartTime, value?.Trim() ?? "")) OnPropertyChanged(nameof(NextExecutionText));
+            if (SetProperty(ref _scheduledStartTime, value?.Trim() ?? "")) RefreshNextExecutionText();
         }
     }
     [JsonPropertyName("wakeBeforeTaskSeconds")]
@@ -91,14 +108,14 @@ public sealed class AutomationTaskConfig : ObservableObject
     {
         get
         {
-            if (!TimeSpan.TryParse(ScheduledStartTime, out var time) || time < TimeSpan.Zero || time >= TimeSpan.FromDays(1)) return "未定时";
+            if (!TimeSpan.TryParse(IsGroupChild ? GroupScheduledStartTime : ScheduledStartTime, out var time) || time < TimeSpan.Zero || time >= TimeSpan.FromDays(1)) return "未定时";
             var now = DateTime.Now;
             var next = now.Date + time;
             if (next <= now) next = next.AddDays(1);
             return next.Date == now.Date ? $"今天 {next:HH:mm}" : $"明天 {next:HH:mm}";
         }
     }
-    internal void RefreshNextExecutionText() => OnPropertyChanged(nameof(NextExecutionText));
+    internal void RefreshNextExecutionText() { OnPropertyChanged(nameof(NextExecutionText)); OnPropertyChanged(nameof(ScheduleLabel)); }
     [JsonIgnore] public string StatusText => Status switch
     {
         TaskRunStatus.Idle => "等待执行", TaskRunStatus.Waiting => "等待执行", TaskRunStatus.Starting => "正在启动",
@@ -182,7 +199,7 @@ public sealed class AppConfig
     [JsonPropertyName("enableScreenManager")]
     public bool EnableScreenManager { get; set; } = true;
     [JsonPropertyName("idleTimeoutMinutes")]
-    public int IdleTimeoutMinutes { get; set; } = 30;
+    public int IdleTimeoutMinutes { get; set; } = 5;
     [JsonPropertyName("wakeBeforeTaskSeconds")]
     public int WakeBeforeTaskSeconds { get; set; } = 30;
     [JsonPropertyName("autoBlackoutAfterTask")]

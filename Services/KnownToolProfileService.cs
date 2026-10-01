@@ -17,6 +17,24 @@ public sealed class KnownToolProfileService
         new("M7A", "M7A\\March7thAssistant_full\\March7th Launcher.exe", "main -e", "March7th Assistant.exe", "M7A\\March7thAssistant_full\\logs\\*.log", "游戏终止：StarRail", "", 180)
     ];
 
+    public AutomationTaskConfig CreateProfile(string type)
+    {
+        var installed = Discover().FirstOrDefault(task => task.ToolType == type);
+        if (installed is not null) return installed;
+        var profile = Profiles.First(item => item.Name == type);
+        var task = new AutomationTaskConfig
+        {
+            Name = type, ToolType = type, Arguments = profile.Arguments,
+            CompletionMode = CompletionDetectionMode.SpecifiedProcessExit,
+            CompletionProcessName = profile.CompletionProcessName,
+            CompletionKeyword = profile.CompletionKeyword,
+            CompletionFailureKeyword = profile.FailureKeyword,
+            MaxRunMinutes = profile.MaxRunMinutes, RunAsAdministrator = type == "M7A"
+        };
+        task.ProcessRules.Add(new ProcessRule { ProcessName = profile.CompletionProcessName, AllowNameFallback = true });
+        return task;
+    }
+
     public IReadOnlyList<AutomationTaskConfig> Discover()
     {
         var results = new List<AutomationTaskConfig>();
@@ -30,6 +48,7 @@ public sealed class KnownToolProfileService
             var task = new AutomationTaskConfig
             {
                 Name = profile.Name,
+                ToolType = profile.Name,
                 ProgramPath = executable,
                 WorkingDirectory = Path.GetDirectoryName(executable) ?? "",
                 Arguments = profile.Arguments,
@@ -40,7 +59,7 @@ public sealed class KnownToolProfileService
                 CompletionFailureKeyword = profile.FailureKeyword,
                 RunAsAdministrator = profile.Name == "M7A",
                 MaxRunMinutes = profile.MaxRunMinutes,
-                Description = $"已适配的 {profile.Name} 自动化任务；监控指定任务进程，进程退出后清理并执行下一项。"
+                Description = $"已适配的 {profile.Name} 自动化任务。"
             };
             task.ProcessRules.Add(new ProcessRule { ProcessName = profile.CompletionProcessName, ExecutableDirectory = task.WorkingDirectory, Monitor = true, Cleanup = true, AllowNameFallback = true });
             results.Add(task);
@@ -51,6 +70,7 @@ public sealed class KnownToolProfileService
     public static void ApplyRecommendedSettings(AutomationTaskConfig target, AutomationTaskConfig profile)
     {
         target.Name = profile.Name;
+        target.ToolType = profile.ToolType;
         target.ProgramPath = profile.ProgramPath;
         target.WorkingDirectory = profile.WorkingDirectory;
         target.Arguments = profile.Arguments;

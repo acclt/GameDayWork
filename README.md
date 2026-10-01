@@ -2,23 +2,25 @@
 
 > 面向 Windows 的定时任务编排工具：按顺序运行桌面程序、确认任务完成并清理残留进程，同时提供假息屏和企业微信通知。
 >
-> 📦 [下载最新 Windows x64 便携版](https://github.com/acclt/GameDayWork/releases/latest) · [便携版发布说明](PORTABLE_RELEASE.md)
+> 📦 [下载最新 Windows x64 便携版](https://github.com/L6H7Q7/GameDayWork/releases/latest) · [便携版发布说明](PORTABLE_RELEASE.md)
 
-## 当前版本：v0.4.4
+## 当前版本：v0.4.5
+
+本版调整为 900×700 主窗口内切换任务设置与全局设置，加入任务组调度，并为 MAA/MMA、MFA 增加按实例绑定的 MuMu 虚拟机清理。清理会核验虚拟机状态；只有全部虚拟机均已关闭时才尝试结束 MuMu 辅助进程。MuMu 适配已通过模拟及只读绑定检查，尚未完成真实任务的端到端清理实测。
 
 GameDayWork 适合需要在无人值守时依次运行多个桌面工具的场景。每项任务达到设定的完成条件后，程序会检查并清理关联进程，确认退出后再启动下一项；最长运行时间只用作异常卡死保护。
 
-- 可配置任务链、单项运行和定时启动；运行一次不会改变原有定时计划。
-- 支持主进程退出、指定进程退出、日志关键字等完成条件，也能用失败关键字提前识别故障。
-- 提供 BGI、MAA、ZOG、MFA、M7A 的推荐适配，仍可自行修改程序路径、启动参数和进程规则。
+- 支持独立任务和任务组；组内任务按顺序运行，由任务组统一调度。首次运行的任务列表为空。
+- 完成判断由所选工具适配提供；自定义任务默认以主进程退出为完成条件。
+- 提供 BGI、MAA、ZOG、MFA、M7A 与自定义任务选项；选择已适配类型后自动更新任务名称，可设置程序路径和启动参数。
 - 空闲时可用黑色遮罩与亮度调低实现假息屏；任务开始前自动恢复画面，执行期间保持显示。
 - 可选企业微信群机器人 Webhook 通知，以及任务运行和完成时的屏幕截图。
 
-可直接使用的 Windows x64 便携包见 [Releases](https://github.com/acclt/GameDayWork/releases/latest)。无需安装程序；首次运行默认不会安装系统服务或修改系统电源策略。
+可直接使用的 Windows x64 便携包见 [Releases](https://github.com/L6H7Q7/GameDayWork/releases/latest)。无需安装程序；首次运行默认不会安装系统服务或修改系统电源策略。
 
 ## 主要功能
 
-- 🧩 **串行任务链** — 增删、复制、启停和拖放排序任务；任务间隔、失败后的处理方式可配置。
+- 🧩 **任务组** — 默认收纳组内任务；点击组查看名称、统一启动时间和组内任务管理。单项最长运行时间默认 45 分钟；上一项完成并清理后，默认间隔 5 秒再运行下一项。
 - ✅ **完成与故障判断** — 监测主进程、指定进程或本次运行后新增的日志内容；日志路径支持 `*.log` 和按日期轮转。
 - 🧹 **进程清理** — 结合进程路径、启动时间、父子关系与 Job Object 跟踪关联进程，清理后重试并验证；默认不按进程名称兜底结束同名程序。
 - 🕒 **定时执行** — 在计划时间前预留准备时间，解除遮罩并恢复亮度，到达计划时间后启动任务链。
@@ -30,9 +32,9 @@ GameDayWork 适合需要在无人值守时依次运行多个桌面工具的场�
 
 ## 快速开始
 
-1. 从 [Releases](https://github.com/acclt/GameDayWork/releases/latest) 下载 `GameDayWork-v0.4.4-win-x64-portable.zip`，解压到单独目录，运行 `GameDayWork.exe`。
-2. 在主界面添加任务，选择程序路径并设定完成条件；也可以应用推荐适配后再核对路径与参数。
-3. 调整任务顺序，选择单独运行、运行一次任务链或设置计划时间。正式运行前，建议先用无副作用的测试程序验证完成条件和清理规则。
+1. 从 [Releases](https://github.com/L6H7Q7/GameDayWork/releases/latest) 下载 `GameDayWork-v0.4.5-win-x64-portable.zip`，解压到单独目录，运行 `GameDayWork.exe`。
+2. 点击“添加”选择独立任务或任务组。点击左侧任务进入设置，选择任务类型并核对程序路径和参数。
+3. 在组设置中点击“添加任务”管理组内任务，并设置统一启动时间、任务持续时间和任务间隔。独立任务完成后结束，任务组完成当前项后继续下一项。
 4. 需要假息屏、开机自启或企业微信通知时，在右上角“设置”中按需开启。
 
 关闭主窗口只会隐藏到托盘；需要结束程序时，请在托盘菜单选择“退出程序”。
@@ -47,7 +49,7 @@ GameDayWork 适合需要在无人值守时依次运行多个桌面工具的场�
 └─ 到达任务准备时间 → 恢复显示 → 按计划执行任务链 → 结束后重新计时
 ```
 
-默认空闲时长为 30 分钟，计划任务默认提前 30 秒恢复画面，均可在设置中调整。进入假息屏前会记录亮度并尽可能降至最低，退出时恢复；多显示器分别覆盖遮罩。任务准备和执行期间不会进入假息屏，任务链结束后重新计算空闲时间。
+默认空闲时长为 5 分钟，计划任务默认提前 30 秒恢复画面，均可在设置中调整。进入假息屏前会记录亮度并尽可能降至最低，退出时恢复；多显示器分别覆盖遮罩。任务准备和执行期间不会进入假息屏，任务链结束后重新计算空闲时间。
 
 “假息屏”只是降低亮度并显示黑色遮罩，不会关闭显示器、启动屏保或锁定 Windows。手动进入黑屏仍由用户控制；系统静音或设备音量为零时，音频不会阻止自动遮罩。少数独占模式音频设备可能无法提供可用的峰值数据。
 
@@ -56,7 +58,7 @@ GameDayWork 适合需要在无人值守时依次运行多个桌面工具的场�
 解压后的目录和首次运行生成的数据大致如下：
 
 ```text
-GameDayWork-v0.4.4-win-x64-portable\
+GameDayWork-v0.4.5-win-x64-portable\
 ├─ GameDayWork.exe
 ├─ GameDayWork.Service.exe
 ├─ 卸载系统服务.cmd
@@ -77,10 +79,10 @@ GameDayWork-v0.4.4-win-x64-portable\
 dotnet build .\GameDayWork.csproj
 dotnet build .\GameDayWork.Service\GameDayWork.Service.csproj
 dotnet run --project .\tests\GameOrchestrator.SmokeTests\GameOrchestrator.SmokeTests.csproj
-.\scripts\Publish-Portable.ps1 -Version 0.4.4
+.\scripts\Publish-Portable.ps1 -Version 0.4.5
 ```
 
-最后一条命令会生成 `artifacts/GameDayWork-v0.4.4-win-x64-portable.zip`。打包脚本会重建同名输出目录和 ZIP，请不要在该输出目录内保存个人配置或日志。发布包只包含便携程序和说明，不包含本机的 `data/`、`logs/`。
+最后一条命令会生成 `artifacts/GameDayWork-v0.4.5-win-x64-portable.zip`。打包脚本会重建同名输出目录和 ZIP，请不要在该输出目录内保存个人配置或日志。发布包只包含便携程序和说明，不包含本机的 `data/`、`logs/`。
 
 ## 项目结构
 

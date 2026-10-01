@@ -34,6 +34,12 @@ public partial class MainWindow : Window
     private readonly System.Drawing.Icon _idleTrayIcon;
     private readonly System.Drawing.Icon _runningTrayIcon;
     private Point _dragStart;
+    private bool _draggedTask;
+    private enum MainPage { Home, TaskEdit, Settings }
+    private AutomationTaskConfig? _selectionBeforePointer;
+    private MainPage _page;
+    private bool _navigationPending;
+    private bool _closingPending;
     private bool _exitRequested;
     private bool _initialized;
     private nint _windowHandle;
@@ -45,6 +51,11 @@ public partial class MainWindow : Window
     {
         _serviceManaged = serviceManaged;
         InitializeComponent(); DataContext = _viewModel;
+        GlobalSettingsPage.ReturnRequested += () => ShowPage(MainPage.Home);
+        _viewModel.ToggleExecutionCommand.CanExecuteChanged += (_, _) => UpdateExecutionButton();
+        _viewModel.DeleteTaskCommand.CanExecuteChanged += (_, _) => UpdateExecutionButton();
+        _viewModel.DuplicateTaskCommand.CanExecuteChanged += (_, _) => UpdateExecutionButton();
+        UpdateExecutionButton();
         _idleTrayIcon = LoadTrayIcon("Assets/GameDayWork-Idle.ico");
         _runningTrayIcon = LoadTrayIcon("Assets/GameDayWork-Running.ico");
         Opacity = 0;
@@ -164,9 +175,17 @@ public partial class MainWindow : Window
     {
         if (_exitRequested) return;
         e.Cancel = true;
-        HideToTray();
-        try { await _viewModel.SaveAsync(); }
+        if (_closingPending || _navigationPending) return;
+        _closingPending = true;
+        try
+        {
+            if (!await TryLeavePageAsync()) return;
+            ShowPage(MainPage.Home);
+            HideToTray();
+            await _viewModel.SaveAsync();
+        }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"隐藏前保存配置失败：{ex}"); }
+        finally { _closingPending = false; }
     }
 
     private Forms.NotifyIcon CreateTrayIcon()
@@ -241,6 +260,7 @@ public partial class MainWindow : Window
     private async Task ExitApplicationAsync()
     {
         if (_exitRequested) return;
+        if (_navigationPending || GlobalSettingsPage.IsSaving || !await TryLeavePageAsync()) return;
         _exitRequested = true;
         try
         {
@@ -261,66 +281,203 @@ public partial class MainWindow : Window
     private void Browse_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFileDialog { Filter = "可执行文件 (*.exe)|*.exe|所有文件 (*.*)|*.*" };
-        if (dialog.ShowDialog(this) == true && _viewModel.SelectedTask is { } task) task.ProgramPath = dialog.FileName;
-    }
-    private void BrowseLog_Click(object sender, RoutedEventArgs e)
-    {
-        var dialog = new OpenFileDialog { Filter = "日志文件 (*.log;*.txt)|*.log;*.txt|所有文件 (*.*)|*.*" };
-        if (dialog.ShowDialog(this) == true && _viewModel.SelectedTask is { } task) task.CompletionLogPath = dialog.FileName;
+        if (dialog.ShowDialog(this) == true && (_viewModel.EditingTask ?? _viewModel.SelectedTask) is { } task) task.ProgramPath = dialog.FileName;
     }
     private void ClearLogs_Click(object sender, RoutedEventArgs e) => _viewModel.Logs.Clear();
     private void OpenRepository_Click(object sender, RoutedEventArgs e)
     {
-        var url = _viewModel.SelectedTask?.RepositoryUrl;
+        var url = (_viewModel.EditingTask ?? _viewModel.SelectedTask)?.RepositoryUrl;
         if (!string.IsNullOrWhiteSpace(url))
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
     }
     private void ShowValidationErrors(string message) => MessageBox.Show(this, message, "无法开始执行", MessageBoxButton.OK, MessageBoxImage.Warning);
     private void ShowNotice(string message) => MessageBox.Show(this, message, "本机工具识别", MessageBoxButton.OK, MessageBoxImage.Information);
-    private void Settings_Click(object sender, RoutedEventArgs e) => new SettingsWindow(_viewModel) { Owner = this }.ShowDialog();
+    private async void Settings_Click(object sender, RoutedEventArgs e) => await NavigateAsync(MainPage.Settings);
+    private async void Home_Click(object sender, RoutedEventArgs e) => await NavigateAsync(MainPage.Home);
+    private async void Back_Click(object sender, RoutedEventArgs e) => await NavigateAsync(MainPage.Home);
+
+    private void UpdateExecutionButton()
+    {
+        if (ExecutionButton is null || DeleteTaskButton is null) return;
+        ExecutionButton.IsEnabled = _viewModel.ToggleExecutionCommand.CanExecute(null);
+        DeleteTaskButton.IsEnabled = _viewModel.DeleteTaskCommand.CanExecute(null);
+        DuplicateTaskButton.IsEnabled = _viewModel.DuplicateTaskCommand.CanExecute(null);
+        AddTaskButton.IsEnabled = !_viewModel.IsExecutionBusy;
+        var container = _viewModel.SelectedTask is { } selected ? _viewModel.ContainerOf(selected) : _viewModel.Tasks;
+        var index = _viewModel.SelectedTask is { } task ? container.IndexOf(task) : -1;
+        MoveUpButton.IsEnabled = !_viewModel.IsExecutionBusy && index > 0;
+        MoveDownButton.IsEnabled = !_viewModel.IsExecutionBusy && index >= 0 && index < container.Count - 1;
+        GroupSettingsPanel.IsEnabled = !_viewModel.IsExecutionBusy;
+    }
+
+    private void SetNavigationPending(bool pending)
+    {
+        _navigationPending = pending;
+        TasksPage.IsEnabled = !pending;
+    }
+
+    private async void Execution_Click(object sender, RoutedEventArgs e)
+    {
+        if (_navigationPending || _closingPending) return;
+        // A stop must stay available even when an editor has unsaved changes.
+        if (!_viewModel.IsExecutionBusy && !await NavigateAsync(MainPage.Home)) return;
+        if (_viewModel.ToggleExecutionCommand.CanExecute(null)) _viewModel.ToggleExecutionCommand.Execute(null);
+    }
+
+    private void ShowPage(MainPage page)
+    {
+        _page = page;
+        HomePage.Visibility = page == MainPage.Home ? Visibility.Visible : Visibility.Collapsed;
+        TasksPage.Visibility = Visibility.Visible;
+        TaskEditPage.Visibility = page == MainPage.TaskEdit ? Visibility.Visible : Visibility.Collapsed;
+        GlobalSettingsPage.Visibility = page == MainPage.Settings ? Visibility.Visible : Visibility.Collapsed;
+        NavigationBar.Visibility = page == MainPage.Home ? Visibility.Collapsed : Visibility.Visible;
+        var isGroup = _viewModel.EditingTask?.IsGroup == true;
+        var isChild = _viewModel.EditingTask?.IsGroupChild == true;
+        TaskSettingsPanel.Visibility = isGroup ? Visibility.Collapsed : Visibility.Visible;
+        GroupSettingsPanel.Visibility = isGroup ? Visibility.Visible : Visibility.Collapsed;
+        TaskScheduleFields.Visibility = TaskWakeFields.Visibility = TaskDurationFields.Visibility = isChild ? Visibility.Collapsed : Visibility.Visible;
+        GroupScheduleHint.Visibility = isChild ? Visibility.Visible : Visibility.Collapsed;
+        PageTitle.Text = page switch { MainPage.TaskEdit => isGroup ? "任务组设置" : "单任务配置", MainPage.Settings => "全局设置", _ => "主页" };
+        UpdateExecutionButton();
+        if (page == MainPage.Home) LogsChanged(null, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+    }
+
+    private async Task<bool> NavigateAsync(MainPage page, AutomationTaskConfig? task = null)
+    {
+        if (_navigationPending || _closingPending || GlobalSettingsPage.IsSaving) return false;
+        if (_page == page && (page != MainPage.TaskEdit || task == _viewModel.EditingTaskTarget)) return true;
+        var previousSelection = _viewModel.EditingTaskTarget ?? (task is not null ? _selectionBeforePointer : null) ?? _viewModel.SelectedTask;
+        SetNavigationPending(true);
+        try
+        {
+            if (!await TryLeavePageAsync())
+            {
+                _viewModel.SelectedTask = previousSelection;
+                return false;
+            }
+            if (page == MainPage.Settings) GlobalSettingsPage.BeginEdit(_viewModel);
+            if (page == MainPage.TaskEdit && task is not null)
+            {
+                _viewModel.BeginTaskEdit(task);
+            }
+            ShowPage(page);
+            return true;
+        }
+        finally { SetNavigationPending(false); }
+    }
+
+    private async Task<bool> TryLeavePageAsync()
+    {
+        if (_page == MainPage.Settings) return await GlobalSettingsPage.TryLeaveAsync();
+        if (_page != MainPage.TaskEdit) return true;
+        UpdateInputBindings(TaskEditPage);
+        if (_viewModel.HasTaskEdits || HasInputErrors(TaskEditPage))
+        {
+            var choice = MessageBox.Show(this, "当前任务有未保存的修改，是否保存？", "未保存的修改", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
+            if (choice == MessageBoxResult.Cancel) return false;
+            if (choice == MessageBoxResult.Yes) return await SaveTaskEditAsync();
+        }
+        _viewModel.DiscardTaskEdit();
+        return true;
+    }
+
+    internal static void UpdateInputBindings(DependencyObject root)
+    {
+        foreach (var grid in InputElements(root).OfType<DataGrid>())
+        {
+            grid.CommitEdit(DataGridEditingUnit.Cell, true);
+            grid.CommitEdit(DataGridEditingUnit.Row, true);
+        }
+        foreach (var input in InputElements(root).OfType<TextBox>()) input.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+    }
+
+    internal static bool HasInputErrors(DependencyObject root) => Validation.GetHasError(root)
+        || InputElements(root).Any(Validation.GetHasError);
+
+    private async Task<bool> SaveTaskEditAsync()
+    {
+        if (HasInputErrors(TaskEditPage))
+        {
+            MessageBox.Show(this, "请检查标红的输入项，填写有效数值后再保存。", "输入无效", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return false;
+        }
+        if (_viewModel.EditingTask is { } draft && string.IsNullOrWhiteSpace(draft.Name))
+        {
+            MessageBox.Show(this, "请填写名称后再保存。", "输入无效", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return false;
+        }
+        if (_viewModel.EditingTask is { } task && !string.IsNullOrWhiteSpace(task.ScheduledStartTime)
+            && !SchedulerService.TryParseTime(task.ScheduledStartTime, out _))
+        {
+            MessageBox.Show(this, "定时启动时间请填写 HH:mm 或 HH:mm:ss，留空表示不单独定时。", "输入无效", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return false;
+        }
+        try { await _viewModel.SaveTaskEditAsync(); return true; }
+        catch (Exception ex) { MessageBox.Show(this, ex.Message, "保存配置失败", MessageBoxButton.OK, MessageBoxImage.Error); return false; }
+    }
+
+    private async void DeleteTask_Click(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel.DeleteTaskCommand.CanExecute(null) && await NavigateAsync(MainPage.Home)) _viewModel.DeleteTaskCommand.Execute(null);
+    }
+    private async void DuplicateTask_Click(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel.DuplicateTaskCommand.CanExecute(null) && await NavigateAsync(MainPage.Home)) _viewModel.DuplicateTaskCommand.Execute(null);
+    }
+    private async void MoveUp_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_viewModel.IsExecutionBusy && await NavigateAsync(MainPage.Home)) { _viewModel.MoveUpCommand.Execute(null); UpdateExecutionButton(); }
+    }
+    private async void MoveDown_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_viewModel.IsExecutionBusy && await NavigateAsync(MainPage.Home)) { _viewModel.MoveDownCommand.Execute(null); UpdateExecutionButton(); }
+    }
+
+    private async void SaveList_Click(object sender, RoutedEventArgs e)
+    {
+        if (!await NavigateAsync(MainPage.Home)) return;
+        try { await _viewModel.SaveAsync(); MessageBox.Show(this, "任务列表已保存。", "保存列表", MessageBoxButton.OK, MessageBoxImage.Information); }
+        catch (Exception ex) { MessageBox.Show(this, ex.Message, "保存列表失败", MessageBoxButton.OK, MessageBoxImage.Error); }
+    }
     private void WirePlaceholderControls()
     {
-        foreach (var button in FindVisualChildren<Button>(this))
-        {
-            var text = button.Content?.ToString();
-            if (text == "重置") button.Command = _viewModel.ResetTaskCommand;
-        }
-        foreach (var combo in FindVisualChildren<ComboBox>(this))
-        {
-            if (combo.Items.Count > 0 && combo.Items[0] is ComboBoxItem item && item.Content?.ToString() == "全部")
-            {
-                foreach (var level in new[] { "INFO", "SUCCESS", "WARNING", "ERROR" }) combo.Items.Add(new ComboBoxItem { Content = level });
-                combo.SelectionChanged += LogFilter_SelectionChanged;
-            }
-            else if (combo.ItemsSource is not null) ApplyEnumTemplate(combo);
-        }
+        foreach (var level in new[] { "INFO", "SUCCESS", "WARNING", "ERROR" }) LogFilter.Items.Add(new ComboBoxItem { Content = level });
+        LogFilter.SelectionChanged += LogFilter_SelectionChanged;
     }
     private void LogFilter_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         var selected = ((sender as ComboBox)?.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "全部";
         CollectionViewSource.GetDefaultView(_viewModel.Logs).Filter = item => selected == "全部" || item is LogEntry entry && entry.LevelText == selected;
     }
-    private static void ApplyEnumTemplate(ComboBox combo)
+    private static IEnumerable<FrameworkElement> InputElements(DependencyObject root)
     {
-#pragma warning disable CS0618
-        var text = new FrameworkElementFactory(typeof(TextBlock));
-        text.SetBinding(TextBlock.TextProperty, new Binding { Converter = new Infrastructure.EnumDisplayConverter() });
-        combo.ItemTemplate = new DataTemplate { VisualTree = text };
-#pragma warning restore CS0618
-    }
-    private static IEnumerable<T> FindVisualChildren<T>(DependencyObject root) where T : DependencyObject
-    {
-        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        // Inactive tab contents leave the visual tree but still hold bindings and errors.
+        var pending = new Stack<DependencyObject>();
+        var visited = new HashSet<DependencyObject>();
+        pending.Push(root);
+        while (pending.Count > 0)
         {
-            var child = VisualTreeHelper.GetChild(root, index);
-            if (child is T match) yield return match;
-            foreach (var descendant in FindVisualChildren<T>(child)) yield return descendant;
+            var node = pending.Pop();
+            if (!visited.Add(node)) continue;
+            if (node is FrameworkElement element) yield return element;
+            if (node is Visual or System.Windows.Media.Media3D.Visual3D)
+                for (var index = 0; index < VisualTreeHelper.GetChildrenCount(node); index++) pending.Push(VisualTreeHelper.GetChild(node, index));
+            if (node is FrameworkElement or FrameworkContentElement)
+                foreach (var child in LogicalTreeHelper.GetChildren(node))
+                    if (child is DependencyObject dependency) pending.Push(dependency);
         }
     }
     private async void SaveConfig_Click(object sender, RoutedEventArgs e)
     {
-        await _viewModel.SaveAsync();
-        MessageBox.Show(this, "任务配置已保存。", "保存配置", MessageBoxButton.OK, MessageBoxImage.Information);
+        if (_navigationPending) return;
+        SetNavigationPending(true);
+        try
+        {
+            UpdateInputBindings(TaskEditPage);
+            if (await SaveTaskEditAsync()) ShowPage(MainPage.Home);
+        }
+        finally { SetNavigationPending(false); }
     }
     private void ExportLogs_Click(object sender, RoutedEventArgs e)
     {
@@ -362,53 +519,150 @@ public partial class MainWindow : Window
             }
         });
     }
-    private void AddTask_Click(object sender, RoutedEventArgs e)
+    private async void AddTask_Click(object sender, RoutedEventArgs e)
     {
+        if (_viewModel.IsExecutionBusy || !await NavigateAsync(MainPage.Home)) return;
         var menu = new ContextMenu
         {
             PlacementTarget = sender as Button,
             Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom,
             MinWidth = 220
         };
-        var profiles = _viewModel.DiscoverKnownTools();
-        foreach (var profile in profiles)
+        foreach (var isGroup in new[] { false, true })
         {
-            var item = new MenuItem
+            var item = new MenuItem { Header = isGroup ? "任务组" : "独立任务" };
+            item.Click += async (_, _) =>
             {
-                Header = profile.Name,
-                Tag = profile
+                if (_viewModel.IsExecutionBusy) return;
+                var task = new AutomationTaskConfig { IsGroup = isGroup, Name = isGroup ? "新任务组" : "新任务", IsExpanded = isGroup };
+                _viewModel.Tasks.Add(task);
+                _viewModel.RefreshVisibleTasks();
+                await NavigateAsync(MainPage.TaskEdit, task);
             };
-            item.Click += AddKnownTool_Click;
             menu.Items.Add(item);
         }
-        if (profiles.Count == 0)
-            menu.Items.Add(new MenuItem { Header = "未找到已适配的软件", IsEnabled = false });
         menu.IsOpen = true;
     }
-    private async void AddKnownTool_Click(object sender, RoutedEventArgs e)
+    private void ToolType_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if ((sender as MenuItem)?.Tag is AutomationTaskConfig profile)
-            await _viewModel.AddKnownToolAsync(profile);
+        try
+        {
+            if ((sender as ComboBox)?.SelectedItem is string type) _viewModel.ApplyToolType(type);
+        }
+        catch (Exception ex) { MessageBox.Show(this, ex.Message, "选择任务类型失败", MessageBoxButton.OK, MessageBoxImage.Error); }
     }
+    private async Task EditGroupMembersAsync(bool add, int? offset = null)
+    {
+        if (_navigationPending || _viewModel.IsExecutionBusy || _viewModel.EditingTaskTarget is not { IsGroup: true } group) return;
+        var memberId = (GroupMembersList.SelectedItem as AutomationTaskConfig)?.Id;
+        if (!add && memberId is null) return;
+        SetNavigationPending(true);
+        try
+        {
+            UpdateInputBindings(TaskEditPage);
+            if (!await SaveTaskEditAsync()) return;
+            if (add)
+            {
+                group.Children.Add(new AutomationTaskConfig { IsGroupChild = true, CompletionAction = TaskCompletionAction.RunNext });
+                group.IsExpanded = true;
+            }
+            else if (group.Children.FirstOrDefault(child => child.Id == memberId) is { } child)
+            {
+                if (offset is null) group.Children.Remove(child);
+                else
+                {
+                    var from = group.Children.IndexOf(child); var to = from + offset.Value;
+                    if (to >= 0 && to < group.Children.Count) group.Children.Move(from, to);
+                }
+            }
+            await _viewModel.SaveAsync();
+            _viewModel.RefreshVisibleTasks();
+            if (add && group.Children.LastOrDefault() is { } newTask)
+            {
+                TaskList.UpdateLayout();
+                TaskList.ScrollIntoView(newTask);
+            }
+        }
+        catch (Exception ex) { MessageBox.Show(this, ex.Message, "修改组内任务失败", MessageBoxButton.OK, MessageBoxImage.Error); }
+        finally
+        {
+            // Membership buttons save the group settings and keep the group editor open.
+            if (_viewModel.EditingTask is null) _viewModel.BeginTaskEdit(group);
+            ShowPage(MainPage.TaskEdit);
+            if (add) GroupMembersList.SelectedIndex = group.Children.Count - 1;
+            else GroupMembersList.SelectedItem = _viewModel.EditingTask?.Children.FirstOrDefault(child => child.Id == memberId);
+            SetNavigationPending(false);
+        }
+    }
+    private async void AddGroupTask_Click(object sender, RoutedEventArgs e) => await EditGroupMembersAsync(true);
+    private async void RemoveGroupTask_Click(object sender, RoutedEventArgs e) => await EditGroupMembersAsync(false);
+    private async void MoveGroupTaskUp_Click(object sender, RoutedEventArgs e) => await EditGroupMembersAsync(false, -1);
+    private async void MoveGroupTaskDown_Click(object sender, RoutedEventArgs e) => await EditGroupMembersAsync(false, 1);
     private void TaskList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (TaskSettingsTabs is not null) TaskSettingsTabs.SelectedIndex = 0;
+        UpdateExecutionButton();
     }
-    private void TaskList_MouseDown(object sender, MouseButtonEventArgs e) => _dragStart = e.GetPosition(TaskList);
+    private void TaskList_MouseDown(object sender, MouseButtonEventArgs e)
+    {
+        _selectionBeforePointer = _viewModel.SelectedTask;
+        _dragStart = e.GetPosition(TaskList);
+        _draggedTask = false;
+    }
+    private async void TaskList_MouseUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_draggedTask || IsInteractiveControl(e.OriginalSource as DependencyObject))
+        {
+            _selectionBeforePointer = null;
+            return;
+        }
+        if (FindItem(e.OriginalSource as DependencyObject) is { } task)
+        {
+            e.Handled = true;
+            if (!await NavigateAsync(MainPage.TaskEdit, task))
+                _viewModel.SelectedTask = _viewModel.EditingTaskTarget ?? _selectionBeforePointer ?? _viewModel.SelectedTask;
+            else if (task.IsGroup) _viewModel.ToggleGroup(task);
+        }
+        _selectionBeforePointer = null;
+    }
+    private async void TaskList_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter || _viewModel.SelectedTask is not { } task) return;
+        _selectionBeforePointer = null;
+        e.Handled = true;
+        if (await NavigateAsync(MainPage.TaskEdit, task) && task.IsGroup) _viewModel.ToggleGroup(task);
+    }
+    private static bool IsInteractiveControl(DependencyObject? source)
+    {
+        while (source is not null && source is not ListBoxItem)
+        {
+            if (source is System.Windows.Controls.Primitives.ButtonBase or System.Windows.Controls.Primitives.ScrollBar) return true;
+            source = ParentOf(source);
+        }
+        return false;
+    }
     private void TaskList_MouseMove(object sender, MouseEventArgs e)
     {
-        if (e.LeftButton != MouseButtonState.Pressed || (e.GetPosition(TaskList) - _dragStart).Length < SystemParameters.MinimumHorizontalDragDistance) return;
-        if (FindItem(e.OriginalSource as DependencyObject) is { } item) DragDrop.DoDragDrop(TaskList, item, DragDropEffects.Move);
+        if (_viewModel.IsExecutionBusy || e.LeftButton != MouseButtonState.Pressed || IsInteractiveControl(e.OriginalSource as DependencyObject)) return;
+        var delta = e.GetPosition(TaskList) - _dragStart;
+        if (Math.Abs(delta.X) < SystemParameters.MinimumHorizontalDragDistance && Math.Abs(delta.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+        if (FindItem(e.OriginalSource as DependencyObject) is { } item)
+        {
+            _draggedTask = true;
+            DragDrop.DoDragDrop(TaskList, item, DragDropEffects.Move);
+        }
     }
     private void TaskList_Drop(object sender, DragEventArgs e)
     {
         if (e.Data.GetData(typeof(AutomationTaskConfig)) is AutomationTaskConfig source && FindItem(e.OriginalSource as DependencyObject) is { } target) _viewModel.Reorder(source, target);
+        UpdateExecutionButton();
     }
     private static AutomationTaskConfig? FindItem(DependencyObject? source)
     {
-        while (source is not null && source is not ListBoxItem) source = System.Windows.Media.VisualTreeHelper.GetParent(source);
+        while (source is not null && source is not ListBoxItem) source = ParentOf(source);
         return (source as ListBoxItem)?.DataContext as AutomationTaskConfig;
     }
+    private static DependencyObject? ParentOf(DependencyObject source) => source is Visual or System.Windows.Media.Media3D.Visual3D
+        ? VisualTreeHelper.GetParent(source) : LogicalTreeHelper.GetParent(source);
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

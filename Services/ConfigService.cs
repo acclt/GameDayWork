@@ -35,10 +35,7 @@ public sealed class ConfigService
     }
     private static AppConfig CreateDefault()
     {
-        var config = new AppConfig { ConfigSchemaVersion = CurrentSchemaVersion };
-        foreach (var name in new[] { "BGI", "MAA", "ZOG", "MFA", "M7A" })
-            config.Tasks.Add(new AutomationTaskConfig { Name = name });
-        return config;
+        return new AppConfig { ConfigSchemaVersion = CurrentSchemaVersion };
     }
 
     private static bool Migrate(AppConfig config)

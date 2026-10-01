@@ -6,17 +6,22 @@ namespace GameOrchestrator.Services;
 
 public sealed record TaskRunResult(RuntimeSession Session, bool Success, bool TimedOut, string? Error);
 
-public sealed class TaskRunnerService(ProcessMonitorService monitor, ProcessCleanupService cleanup, LoggingService log, TaskEventBus events, TaskScreenshotCoordinator? screenshots = null)
+public sealed class TaskRunnerService(ProcessMonitorService monitor, ProcessCleanupService cleanup, LoggingService log, TaskEventBus events, TaskScreenshotCoordinator? screenshots = null, MuMuCleanupService? mumu = null)
 {
+    private readonly MuMuCleanupService _mumu = mumu ?? new MuMuCleanupService(log);
     public event Action<RuntimeSession>? SessionChanged;
     public async Task<TaskRunResult> RunAsync(AutomationTaskConfig task, CancellationToken queueToken)
     {
         var session = new RuntimeSession { TaskId = task.Id, TaskName = task.Name, Status = TaskRunStatus.Starting };
         task.Status = TaskRunStatus.Starting; events.Publish(new TaskStartingEvent(session)); SessionChanged?.Invoke(session);
         Process? root = null; JobObjectService? job = null; bool timedOut = false; string? error = null;
+        MuMuTarget? mumuTarget = null;
         try
         {
             if (!File.Exists(task.ProgramPath)) throw new FileNotFoundException("找不到任务程序", task.ProgramPath);
+            mumuTarget = await _mumu.CaptureAsync(task, queueToken);
+            session.MuMuVmId = mumuTarget?.VmId;
+            session.MuMuInstanceIndex = mumuTarget?.Index ?? "";
             foreach (var process in Process.GetProcesses())
             {
                 try { session.BaselineProcessIds.Add(process.Id); }
@@ -51,7 +56,7 @@ public sealed class TaskRunnerService(ProcessMonitorService monitor, ProcessClea
             }
             task.Status = session.Status = TaskRunStatus.Running; events.Publish(new TaskStartedEvent(session)); SessionChanged?.Invoke(session);
             await log.WriteAsync(LogLevel.Info, $"{task.Name} 已启动，PID {root.Id}");
-            using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(task.MaxRunMinutes));
+            using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(task.EffectiveMaxRunMinutes));
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(queueToken, timeout.Token);
             try { await WaitForCompletionAsync(root, task, session, linked.Token); }
             catch (OperationCanceledException) when (timeout.IsCancellationRequested && !queueToken.IsCancellationRequested) { timedOut = true; }
@@ -66,12 +71,21 @@ public sealed class TaskRunnerService(ProcessMonitorService monitor, ProcessClea
             task.Status = session.Status = TaskRunStatus.Cleaning; events.Publish(new TaskCleanupStartedEvent(session)); SessionChanged?.Invoke(session);
             await log.WriteAsync(LogLevel.Info, $"开始清理 {task.Name} 关联进程");
             ProcessCleanupResult cleanupResult;
+            ProcessCleanupResult mumuResult = new(true, [], 0);
+            ProcessCleanupResult serviceResult = new(true, [], 0);
+            using var mumuDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+            // Close and verify the VM before JobObject/process-tree termination.
+            if (mumuTarget is not null && session.RootPid > 0)
+                mumuResult = await _mumu.CloseInstanceAsync(mumuTarget, mumuDeadline.Token);
             try { cleanupResult = await cleanup.CleanupAsync(session, task, job, CancellationToken.None); }
             catch (Exception ex) { cleanupResult = new(false, [], 0); error ??= ex.Message; }
-            session.SetTerminatedProcesses(cleanupResult.Processes);
+            if (mumuTarget is not null && session.RootPid > 0)
+                serviceResult = await _mumu.FinishCleanupAsync(mumuTarget, mumuDeadline.Token);
+            session.SetTerminatedProcesses(mumuResult.Processes.Concat(cleanupResult.Processes).Concat(serviceResult.Processes));
             task.Status = session.Status = TaskRunStatus.CleanupVerifying; SessionChanged?.Invoke(session);
-            var remaining = session.RootPid > 0 ? monitor.Scan(session, task).Count : 0;
-            if (cleanupResult.Success && remaining == 0) { events.Publish(new TaskCleanupCompletedEvent(session)); await log.WriteAsync(LogLevel.Success, $"{task.Name} 清理完成"); }
+            var remaining = (session.RootPid > 0 ? monitor.Scan(session, task).Count : 0) + serviceResult.RemainingCount;
+            if (!mumuResult.Success || !serviceResult.Success) error ??= "MuMu 虚拟机或辅助服务清理验证失败";
+            if (cleanupResult.Success && mumuResult.Success && serviceResult.Success && remaining == 0) { events.Publish(new TaskCleanupCompletedEvent(session)); await log.WriteAsync(LogLevel.Success, $"{task.Name} 清理完成"); }
             else { error ??= $"仍有 {remaining} 个关联进程未退出"; await log.WriteAsync(LogLevel.Error, $"{task.Name} 清理验证失败：{error}"); }
             job?.Dispose(); root?.Dispose(); session.EndTime = DateTimeOffset.Now;
         }

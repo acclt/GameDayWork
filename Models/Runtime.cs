@@ -16,6 +16,8 @@ public sealed class RuntimeSession
     public HashSet<int> BaselineProcessIds { get; } = [];
     public TaskRunStatus Status { get; set; }
     public string ExitReason { get; set; } = "";
+    public Guid? MuMuVmId { get; set; }
+    public string MuMuInstanceIndex { get; set; } = "";
 
     public int TrackedProcessCount { get { lock (_processGate) return _trackedProcesses.Count; } }
     public IReadOnlyList<TrackedProcess> SnapshotTrackedProcesses() { lock (_processGate) return [.. _trackedProcesses]; }

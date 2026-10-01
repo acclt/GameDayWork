@@ -45,7 +45,7 @@ public sealed class ScreenManager : IAsyncDisposable
 
     public ScreenManagerState State { get; private set; } = ScreenManagerState.IdleMonitoring;
     public bool Enabled { get; set; } = true;
-    public TimeSpan IdleTimeout { get; set; } = TimeSpan.FromMinutes(30);
+    public TimeSpan IdleTimeout { get; set; } = TimeSpan.FromMinutes(5);
     public event Action<ScreenManagerState>? StateChanged;
 
     public ScreenManager(LoggingService log, BrightnessManager brightness)

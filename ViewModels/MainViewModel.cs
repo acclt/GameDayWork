@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
+using System.Text.Json;
 using GameOrchestrator.Events;
 using GameOrchestrator.Infrastructure;
 using GameOrchestrator.Models;
@@ -26,6 +27,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly TaskScreenshotCoordinator _screenshotCoordinator;
     private AppConfig _config = new();
     private AutomationTaskConfig? _selectedTask;
+    private AutomationTaskConfig? _editingTask;
+    private AutomationTaskConfig? _editingTaskTarget;
+    private string? _taskEditSnapshot;
     private RuntimeSession? _currentSession;
     private string _statusText = "准备就绪";
     private string _elapsed = "00:00:00";
@@ -34,12 +38,67 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private string _appliedServiceSettings = "";
 
     public ObservableCollection<AutomationTaskConfig> Tasks => _config.Tasks;
+    public ObservableCollection<AutomationTaskConfig> VisibleTasks { get; } = [];
+    public IReadOnlyList<string> ToolTypes { get; } = ["BGI", "MAA", "ZOG", "MFA", "M7A", "自定义任务"];
+    public ObservableCollection<AutomationTaskConfig> ContainerOf(AutomationTaskConfig task) =>
+        Tasks.FirstOrDefault(root => root.IsGroup && root.Children.Contains(task))?.Children ?? Tasks;
+    public void RefreshVisibleTasks()
+    {
+        var selected = SelectedTask;
+        VisibleTasks.Clear();
+        foreach (var root in Tasks)
+        {
+            root.IsGroupChild = false;
+            VisibleTasks.Add(root);
+            foreach (var child in root.Children)
+            {
+                child.IsGroupChild = true;
+                child.GroupScheduledStartTime = root.ScheduledStartTime;
+                child.RefreshNextExecutionText();
+                if (root.IsExpanded) VisibleTasks.Add(child);
+            }
+        }
+        SelectedTask = selected;
+        OnPropertyChanged(nameof(SelectedTask));
+    }
+    public void ToggleGroup(AutomationTaskConfig group)
+    {
+        group.IsExpanded = !group.IsExpanded;
+        RefreshVisibleTasks();
+    }
+    public void ApplyToolType(string type)
+    {
+        if (EditingTask is not { IsGroup: false } draft || draft.ToolType == type) return;
+        if (type != "自定义任务")
+        {
+            var profile = _toolProfiles.CreateProfile(type);
+            draft.ProcessRules.Clear();
+            KnownToolProfileService.ApplyRecommendedSettings(draft, profile);
+        }
+        else
+        {
+            draft.CompletionMode = CompletionDetectionMode.MainProcessExit;
+            draft.CompletionProcessName = "";
+            draft.CompletionLogPath = "";
+            draft.CompletionKeyword = "";
+            draft.CompletionFailureKeyword = "";
+            draft.RunAsAdministrator = false;
+            draft.ProcessRules.Clear();
+        }
+        draft.ToolType = type;
+    }
     public ObservableCollection<LogEntry> Logs { get; } = [];
     public AutomationTaskConfig? SelectedTask { get => _selectedTask; set { if (SetProperty(ref _selectedTask, value)) RaiseCommandStates(); } }
+    public AutomationTaskConfig? EditingTask { get => _editingTask; private set => SetProperty(ref _editingTask, value); }
+    public AutomationTaskConfig? EditingTaskTarget => _editingTaskTarget;
+    public bool HasTaskEdits => EditingTask is not null && JsonSerializer.Serialize(EditingTask) != _taskEditSnapshot;
     public RuntimeSession? CurrentSession { get => _currentSession; private set { if (SetProperty(ref _currentSession, value)) RaiseRuntimeProperties(); } }
     public string StatusText { get => _statusText; private set => SetProperty(ref _statusText, value); }
     public string Elapsed { get => _elapsed; private set => SetProperty(ref _elapsed, value); }
     public string NextRunText => _scheduler.NextRun is { } next ? next.ToString("yyyy/MM/dd HH:mm") : "未启用";
+    public string NextTaskNames => _scheduler.NextRun is { } next
+        ? string.Join("、", Tasks.Where(task => task.Enabled && SchedulerService.TryParseTime(task.ScheduledStartTime, out var time) && time == next.TimeOfDay).Select(task => task.Name))
+        : "尚未设置定时任务，点击查看任务列表";
     public int TaskIntervalSeconds { get => _config.TaskIntervalSeconds; set { _config.TaskIntervalSeconds = Math.Max(0, value); OnPropertyChanged(); } }
     public FailurePolicy FailurePolicy { get => _config.FailurePolicy; set { _config.FailurePolicy = value; OnPropertyChanged(); } }
     public QueueExecutionMode ExecutionMode { get => _config.ExecutionMode; set { _config.ExecutionMode = value; OnPropertyChanged(); } }
@@ -197,11 +256,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         TaskRunStatus.CompletionDetected => "已检测完成，准备清理",
         TaskRunStatus.Cleaning => "正在清理关联进程",
         TaskRunStatus.CleanupVerifying => "正在确认清理结果",
-        _ => "选择左侧任务后点击「开始」，或等待定时任务"
+        _ => "进入任务列表选择任务后点击「开始」，或等待定时执行"
     };
-    public string RecentEvent => Logs.LastOrDefault()?.Message ?? "选择左侧任务后点击“开始”，或等待定时任务";
+    public string RecentEvent => Logs.LastOrDefault()?.Message ?? "进入任务列表选择任务，或等待定时执行";
 
     public string ManualActionText => _launchCoordinator.IsBusy ? "■  停止" : "▶  开始";
+    public bool IsExecutionBusy => _launchCoordinator.IsBusy;
     public ScreenManagerState ScreenState => _screenManager.State;
     public string ScreenStateText => ScreenState switch
     {
@@ -255,8 +315,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         ToggleExecutionCommand = new RelayCommand(ToggleSelectedTask, () => _launchCoordinator.IsBusy || SelectedTask is not null);
         DeleteTaskCommand = new RelayCommand(DeleteTask, () => SelectedTask is not null && !_launchCoordinator.IsBusy);
         DuplicateTaskCommand = new RelayCommand(DuplicateTask, () => SelectedTask is not null && !_launchCoordinator.IsBusy);
-        AddRuleCommand = new RelayCommand(() => SelectedTask?.ProcessRules.Add(new ProcessRule { ProcessName = "Process.exe" }));
-        DeleteRuleCommand = new RelayCommand(() => { if (SelectedTask?.ProcessRules.Count > 0) SelectedTask.ProcessRules.RemoveAt(SelectedTask.ProcessRules.Count - 1); });
+        AddRuleCommand = new RelayCommand(() => (EditingTask ?? SelectedTask)?.ProcessRules.Add(new ProcessRule { ProcessName = "Process.exe" }));
+        DeleteRuleCommand = new RelayCommand(() => { var task = EditingTask ?? SelectedTask; if (task?.ProcessRules.Count > 0) task.ProcessRules.RemoveAt(task.ProcessRules.Count - 1); });
         MoveUpCommand = new RelayCommand(() => MoveSelected(-1));
         MoveDownCommand = new RelayCommand(() => MoveSelected(1));
         OpenLogsCommand = new RelayCommand(OpenLogs);
@@ -322,6 +382,73 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _startupService.Apply(_config.StartWithWindows && !_config.UseSystemService);
         await _configService.SaveAsync(_config);
     }
+    public void BeginTaskEdit(AutomationTaskConfig task)
+    {
+        SelectedTask = task;
+        _editingTaskTarget = task;
+        _taskEditSnapshot = JsonSerializer.Serialize(task);
+        EditingTask = JsonSerializer.Deserialize<AutomationTaskConfig>(_taskEditSnapshot)!;
+        EditingTask.IsGroupChild = ContainerOf(task) != Tasks;
+    }
+    public void DiscardTaskEdit()
+    {
+        EditingTask = null;
+        _editingTaskTarget = null;
+        _taskEditSnapshot = null;
+    }
+    public async Task SaveTaskEditAsync()
+    {
+        if (EditingTask is null || _editingTaskTarget is null) return;
+        var original = _editingTaskTarget;
+        var previous = JsonSerializer.Deserialize<AutomationTaskConfig>(JsonSerializer.Serialize(original))!;
+        ApplyTaskConfiguration(original, EditingTask);
+        try { await SaveAsync(); }
+        catch { ApplyTaskConfiguration(original, previous); throw; }
+        DiscardTaskEdit();
+        RefreshVisibleTasks();
+        OnPropertyChanged(nameof(NextRunText));
+        OnPropertyChanged(nameof(NextTaskNames));
+    }
+    private static void ApplyTaskConfiguration(AutomationTaskConfig target, AutomationTaskConfig source)
+    {
+        // Keep the live task object and runtime state used by the scheduler and runner.
+        target.Name = source.Name;
+        target.ToolType = source.ToolType;
+        target.GroupTaskDurationMinutes = source.GroupTaskDurationMinutes;
+        target.GroupTaskIntervalSeconds = source.GroupTaskIntervalSeconds;
+        if (target.IsGroup)
+        {
+            var children = source.Children.Select(child =>
+            {
+                var live = target.Children.FirstOrDefault(item => item.Id == child.Id);
+                if (live is null) return child;
+                ApplyTaskConfiguration(live, child);
+                return live;
+            }).ToList();
+            target.Children.Clear();
+            foreach (var child in children) target.Children.Add(child);
+        }
+        target.Enabled = source.Enabled;
+        target.ProgramPath = source.ProgramPath;
+        target.Arguments = source.Arguments;
+        target.WorkingDirectory = source.WorkingDirectory;
+        target.CompletionMode = source.CompletionMode;
+        target.CompletionProcessName = source.CompletionProcessName;
+        target.CompletionLogPath = source.CompletionLogPath;
+        target.CompletionKeyword = source.CompletionKeyword;
+        target.CompletionFailureKeyword = source.CompletionFailureKeyword;
+        target.Description = source.Description;
+        target.MaxRunMinutes = source.MaxRunMinutes;
+        target.CleanupWaitSeconds = source.CleanupWaitSeconds;
+        target.CleanupRetries = source.CleanupRetries;
+        target.RunAsAdministrator = source.RunAsAdministrator;
+        target.ScheduledStartTime = source.ScheduledStartTime;
+        target.WakeBeforeTaskSeconds = source.WakeBeforeTaskSeconds;
+        target.CompletionAction = source.CompletionAction;
+        target.TrackChildren = source.TrackChildren;
+        target.UseJobObject = source.UseJobObject;
+        target.ProcessRules = source.ProcessRules;
+    }
     private string ServiceSettingsSignature() => $"{_config.UseSystemService}:{_config.LockScreenDisplayTimeoutEnabled}:{_config.LockScreenDisplayTimeoutAcSeconds}:{_config.LockScreenDisplayTimeoutDcSeconds}";
 
     public void OpenWindowsPowerSettings()
@@ -335,8 +462,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public void Reorder(AutomationTaskConfig source, AutomationTaskConfig target)
     {
         if (_launchCoordinator.IsBusy || source == target) return;
-        var oldIndex = Tasks.IndexOf(source); var newIndex = Tasks.IndexOf(target);
-        if (oldIndex >= 0 && newIndex >= 0) Tasks.Move(oldIndex, newIndex);
+        var container = ContainerOf(source);
+        if (container != ContainerOf(target)) return;
+        var oldIndex = container.IndexOf(source); var newIndex = container.IndexOf(target);
+        if (oldIndex >= 0 && newIndex >= 0) container.Move(oldIndex, newIndex);
+        RefreshVisibleTasks();
     }
     private async void ToggleSelectedTask()
     {
@@ -360,26 +490,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private async Task RunSingleTaskAsync()
     {
         if (SelectedTask is null) { ValidationFailed?.Invoke("请先选择一个任务。"); return; }
-        if (!await ValidateBeforeRunAsync([SelectedTask])) return;
-        await _launchCoordinator.RunSingleAsync(SelectedTask, FailurePolicy);
+        var plan = TaskPlanService.ManualPlan(Tasks, SelectedTask);
+        if (!await ValidateBeforeRunAsync(plan)) return;
+        await _launchCoordinator.RunAsync(plan, DateTime.Now, TaskIntervalSeconds, FailurePolicy);
         RaiseCommandStates();
     }
     private async Task RunScheduledTasksAsync(ScheduledLaunchBatch batch)
     {
-        var scheduled = new List<AutomationTaskConfig>();
-        foreach (var anchor in batch.Anchors.OrderBy(task => Tasks.IndexOf(task)))
-        {
-            if (scheduled.Contains(anchor)) continue;
-            var index = Tasks.IndexOf(anchor);
-            while (index >= 0 && index < Tasks.Count)
-            {
-                var task = Tasks[index];
-                if (task.Enabled && !scheduled.Contains(task)) scheduled.Add(task);
-                if (task.CompletionAction == TaskCompletionAction.None) break;
-                index++;
-                while (index < Tasks.Count && !Tasks[index].Enabled) index++;
-            }
-        }
+        var scheduled = TaskPlanService.Expand(batch.Anchors.OrderBy(task => Tasks.IndexOf(task)));
 
         if (!await ValidateBeforeRunAsync(scheduled)) return;
         await _log.WriteAsync(LogLevel.Info, $"定时任务准备：{string.Join(" → ", scheduled.Select(task => task.Name))}；PrepareAt={batch.PrepareAt:HH:mm:ss}，LaunchAt={batch.ScheduledAt:HH:mm:ss}");
@@ -402,22 +520,38 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(ManualActionText));
         RaiseCommandStates();
     }
-    private void DeleteTask() { if (SelectedTask is null) return; var index = Tasks.IndexOf(SelectedTask); Tasks.Remove(SelectedTask); SelectedTask = Tasks.ElementAtOrDefault(Math.Min(index, Tasks.Count - 1)); }
+    private void DeleteTask()
+    {
+        if (SelectedTask is null) return;
+        var container = ContainerOf(SelectedTask);
+        var index = container.IndexOf(SelectedTask);
+        container.Remove(SelectedTask);
+        SelectedTask = container.ElementAtOrDefault(Math.Min(index, container.Count - 1));
+        RefreshVisibleTasks();
+    }
     private void DuplicateTask()
     {
         if (SelectedTask is null) return;
-        var copy = new AutomationTaskConfig { Name = SelectedTask.Name + " 副本", ProgramPath = SelectedTask.ProgramPath, Arguments = SelectedTask.Arguments, WorkingDirectory = SelectedTask.WorkingDirectory, CompletionMode = SelectedTask.CompletionMode, CompletionProcessName = SelectedTask.CompletionProcessName, CompletionLogPath = SelectedTask.CompletionLogPath, CompletionKeyword = SelectedTask.CompletionKeyword, CompletionFailureKeyword = SelectedTask.CompletionFailureKeyword, MaxRunMinutes = SelectedTask.MaxRunMinutes, CleanupWaitSeconds = SelectedTask.CleanupWaitSeconds, CleanupRetries = SelectedTask.CleanupRetries, TrackChildren = SelectedTask.TrackChildren, UseJobObject = SelectedTask.UseJobObject, RunAsAdministrator = SelectedTask.RunAsAdministrator, ScheduledStartTime = SelectedTask.ScheduledStartTime, WakeBeforeTaskSeconds = SelectedTask.WakeBeforeTaskSeconds, CompletionAction = SelectedTask.CompletionAction };
-        foreach (var rule in SelectedTask.ProcessRules) copy.ProcessRules.Add(new ProcessRule { ProcessName = rule.ProcessName, ExecutablePath = rule.ExecutablePath, ExecutableDirectory = rule.ExecutableDirectory, Monitor = rule.Monitor, Cleanup = rule.Cleanup, AllowNameFallback = rule.AllowNameFallback });
-        Tasks.Insert(Tasks.IndexOf(SelectedTask) + 1, copy); SelectedTask = copy;
+        var copy = JsonSerializer.Deserialize<AutomationTaskConfig>(JsonSerializer.Serialize(SelectedTask))!;
+        copy.Id = Guid.NewGuid();
+        foreach (var child in copy.Children) child.Id = Guid.NewGuid();
+        copy.Name += " 副本";
+        var container = ContainerOf(SelectedTask);
+        container.Insert(container.IndexOf(SelectedTask) + 1, copy); SelectedTask = copy;
+        RefreshVisibleTasks();
     }
-    private void MoveSelected(int offset) { if (SelectedTask is null) return; var from = Tasks.IndexOf(SelectedTask); var to = from + offset; if (to >= 0 && to < Tasks.Count) Tasks.Move(from, to); }
+    private void MoveSelected(int offset) { if (SelectedTask is null) return; var container = ContainerOf(SelectedTask); var from = container.IndexOf(SelectedTask); var to = from + offset; if (to >= 0 && to < container.Count) container.Move(from, to); RefreshVisibleTasks(); }
     private async Task ResetSelectedTaskAsync()
     {
-        if (SelectedTask is null) return;
-        var index = Tasks.IndexOf(SelectedTask);
-        var saved = (await _configService.LoadAsync()).Tasks.FirstOrDefault(t => t.Id == SelectedTask.Id);
+        var target = _editingTaskTarget ?? SelectedTask;
+        if (target is null) return;
+        var container = ContainerOf(target);
+        var index = container.IndexOf(target);
+        var savedRoots = (await _configService.LoadAsync()).Tasks;
+        var saved = savedRoots.Concat(savedRoots.SelectMany(root => root.Children)).FirstOrDefault(t => t.Id == target.Id);
         if (saved is null) { ValidationFailed?.Invoke("该任务尚未保存，无法重置。"); return; }
-        Tasks[index] = saved; SelectedTask = saved;
+        if (EditingTask is not null) { EditingTask = saved; EditingTask.IsGroupChild = container != Tasks; }
+        else { container[index] = saved; SelectedTask = saved; RefreshVisibleTasks(); }
         await _log.WriteAsync(LogLevel.Info, $"已重置任务配置：{saved.Name}");
     }
     private async Task ApplyKnownToolsAsync()
@@ -462,6 +596,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void RefreshTaskIndexes()
     {
         for (var index = 0; index < Tasks.Count; index++) Tasks[index].DisplayIndex = index + 1;
+        RefreshVisibleTasks();
     }
     private void RaiseCommandStates()
     {
@@ -479,8 +614,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void TickUi()
     {
         if (CurrentSession is { } session) Elapsed = ((session.EndTime ?? DateTimeOffset.Now) - session.StartTime).ToString(@"hh\:mm\:ss");
-        foreach (var task in Tasks) task.RefreshNextExecutionText();
-        OnPropertyChanged(nameof(NextRunText)); RaiseRuntimeProperties();
+        foreach (var task in VisibleTasks) task.RefreshNextExecutionText();
+        OnPropertyChanged(nameof(NextRunText)); OnPropertyChanged(nameof(NextTaskNames)); RaiseRuntimeProperties();
     }
     private void RaiseRuntimeProperties()
     {

@@ -42,7 +42,9 @@ public sealed class TaskQueueService(TaskRunnerService runner, LoggingService lo
                     if (policy == FailurePolicy.SkipCurrentTask) task.Status = TaskRunStatus.Skipped;
                     break;
                 }
-                if (!_cts.IsCancellationRequested && task != tasks.Last()) await Task.Delay(TimeSpan.FromSeconds(Math.Max(0, intervalSeconds)), _cts.Token);
+                // RunAsync returns after cleanup and verification; the gap starts here.
+                if (!_cts.IsCancellationRequested && task != tasks.Last())
+                    await Task.Delay(TimeSpan.FromSeconds(Math.Max(0, task.IntervalAfterSeconds ?? intervalSeconds)), _cts.Token);
             }
             if (_cts.IsCancellationRequested) { foreach (var t in tasks.Where(x => x.Status == TaskRunStatus.Waiting)) t.Status = TaskRunStatus.Stopped; Status = QueueRunStatus.Idle; await log.WriteAsync(LogLevel.Warning, "任务队列已停止"); }
             else { Status = QueueRunStatus.Completed; events.Publish(new QueueCompletedEvent()); await log.WriteAsync(LogLevel.Success, "任务队列全部完成"); }
