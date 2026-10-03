@@ -10,11 +10,11 @@ public sealed class KnownToolProfileService
 {
     private static readonly KnownToolProfile[] Profiles =
     [
-        new("BGI", "BGI\\BetterGI.exe", "--startOneDragon", "BetterGI.exe", "BGI\\log\\better-genshin-impact*.log", "一条龙和配置组任务结束", "一条龙在启动阶段被取消", 180),
-        new("MAA", "MAA\\MAA-*-win-x64\\MAA.exe", "", "MAA.exe", "MAA\\MAA-*-win-x64\\debug\\gui.log", "任务已全部完成！", "", 120),
-        new("ZOG", "ZOG\\OneDragon-Launcher.exe", "-o -c", "OneDragon-Launcher.exe", "ZOG\\.log\\log.txt", "指令[ 一条龙 ] 执行成功 返回状态 全部结束", "指令[ 一条龙 ] 执行失败", 120),
-        new("MFA", "MAN\\MaaAutoNaruto-*\\MFAAvalonia.exe", "", "MFAAvalonia.exe", "MAN\\MaaAutoNaruto-*\\logs\\log-*.log", "任务已全部完成！", "停止前状态：FAILED", 120),
-        new("M7A", "M7A\\March7thAssistant_full\\March7th Launcher.exe", "main -e", "March7th Assistant.exe", "M7A\\March7thAssistant_full\\logs\\*.log", "游戏终止：StarRail", "", 180)
+        new("BGI", "BGI\\BetterGI.exe", "--startOneDragon", "BetterGI.exe", "BGI\\log\\better-genshin-impact*.log", "一条龙和配置组任务结束", "一条龙在启动阶段被取消", 45),
+        new("MAA", "MAA\\MAA-*-win-x64\\MAA.exe", "", "MAA.exe", "MAA\\MAA-*-win-x64\\debug\\gui.log", "任务已全部完成！", "", 45),
+        new("ZOG", "ZOG\\OneDragon-Launcher.exe", "-o -c", "OneDragon-Launcher.exe", "ZOG\\.log\\log.txt", "指令[ 一条龙 ] 执行成功 返回状态 全部结束", "指令[ 一条龙 ] 执行失败", 45),
+        new("MFA", "MAN\\MaaAutoNaruto-*\\MFAAvalonia.exe", "", "MFAAvalonia.exe", "MAN\\MaaAutoNaruto-*\\logs\\log-*.log", "任务已全部完成！", "停止前状态：FAILED", 45),
+        new("M7A", "M7A\\March7thAssistant_full\\March7th Launcher.exe", "main -e", "March7th Assistant.exe", "M7A\\March7thAssistant_full\\logs\\*.log", "游戏终止：StarRail", "", 45)
     ];
 
     public AutomationTaskConfig CreateProfile(string type)

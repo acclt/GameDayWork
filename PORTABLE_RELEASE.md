@@ -7,13 +7,13 @@ GameDayWork 仅发布 Windows x64 便携版，不制作安装程序。默认不�
 需要 .NET 8 SDK。在仓库根目录执行：
 
 ```powershell
-.\scripts\Publish-Portable.ps1 -Version 0.4.5
+.\scripts\Publish-Portable.ps1 -Version 0.4.9
 ```
 
 产物为：
 
 ```text
-artifacts/GameDayWork-v0.4.5-win-x64-portable.zip
+artifacts/GameDayWork-v0.4.9-win-x64-portable.zip
 ```
 
 ## GitHub Releases
@@ -21,13 +21,15 @@ artifacts/GameDayWork-v0.4.5-win-x64-portable.zip
 推送符合 `vX.Y.Z` 格式的标签后，`.github/workflows/release.yml` 会构建同名便携包并创建 GitHub Release：
 
 ```powershell
-git tag v0.4.5
-git push origin v0.4.5
+git tag v0.4.9
+git push origin v0.4.9
 ```
 
 创建标签前，应先完成下方人工检查，且不要使用真实五项目做自动化试跑。
 
 ## 发布前人工检查
+
+- 任务准备及执行期间，确认托盘右键菜单显示「结束任务」，主界面按钮显示「结束」；点击后无需二次确认，结束当前任务链并完成关联进程清理，空闲时菜单项隐藏。
 
 1. 将 Windows“关闭显示器”和“睡眠”手动设为“从不”。
 2. 启动 GameDayWork，关闭主窗口，确认程序仍在托盘常驻；通过托盘重新显示主窗口。

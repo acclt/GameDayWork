@@ -146,9 +146,5 @@
         </TabItem>
       </TabControl>
     </Border>
-    <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
-      <Button Content="取消" Width="100" Click="Cancel_Click" />
-      <Button Content="保存并返回" Width="130" Margin="10,0,0,0" Style="{StaticResource PrimaryButton}" Click="Save_Click" />
-    </StackPanel>
   </Grid>
 </UserControl>

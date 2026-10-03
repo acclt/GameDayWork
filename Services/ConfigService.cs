@@ -8,6 +8,7 @@ public sealed class ConfigService
 {
     private const int CurrentSchemaVersion = 2;
     private readonly string _directory;
+    private readonly SemaphoreSlim _saveGate = new(1, 1);
     private readonly JsonSerializerOptions _json = new() { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
     public ConfigService(string? baseDirectory = null) =>
         _directory = Path.Combine(baseDirectory ?? AppContext.BaseDirectory, "data");
@@ -28,10 +29,15 @@ public sealed class ConfigService
     }
     public async Task SaveAsync(AppConfig config)
     {
-        Directory.CreateDirectory(_directory);
-        var temp = ConfigPath + ".tmp";
-        await File.WriteAllTextAsync(temp, JsonSerializer.Serialize(config, _json));
-        File.Move(temp, ConfigPath, true);
+        await _saveGate.WaitAsync();
+        try
+        {
+            Directory.CreateDirectory(_directory);
+            var temp = ConfigPath + ".tmp";
+            await File.WriteAllTextAsync(temp, JsonSerializer.Serialize(config, _json));
+            File.Move(temp, ConfigPath, true);
+        }
+        finally { _saveGate.Release(); }
     }
     private static AppConfig CreateDefault()
     {

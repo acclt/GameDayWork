@@ -106,8 +106,7 @@ public sealed class SchedulerService : IDisposable
             foreach (var date in new[] { now.Date, now.Date.AddDays(1) })
             {
                 var scheduledAt = date + time;
-                var wakeBefore = Math.Clamp(task.WakeBeforeTaskSeconds ?? defaultWakeBefore, 0, 3600);
-                occurrences.Add((task, scheduledAt, scheduledAt.AddSeconds(-wakeBefore)));
+                occurrences.Add((task, scheduledAt, scheduledAt.AddSeconds(-defaultWakeBefore)));
             }
         }
 

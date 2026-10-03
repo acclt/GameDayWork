@@ -36,6 +36,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly DispatcherTimer _uiTimer;
     private bool _serviceConfiguredAtLoad;
     private string _appliedServiceSettings = "";
+    private bool _appliedStartupEnabled;
+    private string _autoSaveMessage = "";
+    public string AutoSaveMessage { get => _autoSaveMessage; set => SetProperty(ref _autoSaveMessage, value); }
 
     public ObservableCollection<AutomationTaskConfig> Tasks => _config.Tasks;
     public ObservableCollection<AutomationTaskConfig> VisibleTasks { get; } = [];
@@ -260,7 +263,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     };
     public string RecentEvent => Logs.LastOrDefault()?.Message ?? "进入任务列表选择任务，或等待定时执行";
 
-    public string ManualActionText => _launchCoordinator.IsBusy ? "■  停止" : "▶  开始";
+    public string ManualActionText => _launchCoordinator.IsBusy ? "■  结束" : "▶  开始";
     public bool IsExecutionBusy => _launchCoordinator.IsBusy;
     public ScreenManagerState ScreenState => _screenManager.State;
     public string ScreenStateText => ScreenState switch
@@ -310,6 +313,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _launchCoordinator.BusyChanged += _ => Application.Current.Dispatcher.Invoke(() =>
         {
             OnPropertyChanged(nameof(ManualActionText));
+            OnPropertyChanged(nameof(IsExecutionBusy));
             RaiseCommandStates();
         });
         ToggleExecutionCommand = new RelayCommand(ToggleSelectedTask, () => _launchCoordinator.IsBusy || SelectedTask is not null);
@@ -346,7 +350,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             await _log.WriteAsync(LogLevel.Info, $"日志自动清理完成：删除 {logCleanup.DeletedFiles} 个文件，释放 {logCleanup.FreedBytes / 1024d / 1024d:F1} MB");
         if (logCleanup.FailedFiles > 0)
             await _log.WriteAsync(LogLevel.Warning, $"日志自动清理有 {logCleanup.FailedFiles} 个文件无法删除");
-        try { _startupService.Apply(_config.StartWithWindows && !_config.UseSystemService); }
+        try
+        {
+            _startupService.Apply(_config.StartWithWindows && !_config.UseSystemService);
+            _appliedStartupEnabled = _config.StartWithWindows && !_config.UseSystemService;
+        }
         catch (Exception ex) { await _log.WriteAsync(LogLevel.Warning, $"同步开机启动项失败：{ex.Message}"); }
         await _screenManager.RecoverDisplayStateAsync();
         Tasks.CollectionChanged += (_, _) => RefreshTaskIndexes();
@@ -363,6 +371,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
     public async Task SaveSettingsAsync()
     {
+        ValidateNotificationSettings();
         if (_config.LockScreenDisplayTimeoutEnabled && !_config.UseSystemService)
             throw new InvalidOperationException("启用“登录页和锁屏页自动息屏”前，请先启用 GameDayWork 系统服务。");
         var serviceSettings = ServiceSettingsSignature();
@@ -374,13 +383,24 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _serviceConfiguredAtLoad = _config.UseSystemService;
             _appliedServiceSettings = serviceSettings;
         }
-        _startupService.Apply(_config.StartWithWindows && !_config.UseSystemService);
+        var startupEnabled = _config.StartWithWindows && !_config.UseSystemService;
+        if (startupEnabled != _appliedStartupEnabled)
+        {
+            _startupService.Apply(startupEnabled);
+            _appliedStartupEnabled = startupEnabled;
+        }
         await _configService.SaveAsync(_config);
     }
     public async Task SaveAsync()
     {
-        _startupService.Apply(_config.StartWithWindows && !_config.UseSystemService);
+        ValidateNotificationSettings();
         await _configService.SaveAsync(_config);
+    }
+    private void ValidateNotificationSettings()
+    {
+        if (!string.IsNullOrWhiteSpace(_config.Notifications.WeComWebhookUrl)
+            && !WeComNotificationService.TryValidateWebhook(_config.Notifications.WeComWebhookUrl, out _, out var error))
+            throw new InvalidOperationException(error);
     }
     public void BeginTaskEdit(AutomationTaskConfig task)
     {
@@ -396,15 +416,19 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _editingTaskTarget = null;
         _taskEditSnapshot = null;
     }
-    public async Task SaveTaskEditAsync()
+    public async Task SaveTaskEditAsync(bool keepEditing = false)
     {
         if (EditingTask is null || _editingTaskTarget is null) return;
         var original = _editingTaskTarget;
         var previous = JsonSerializer.Deserialize<AutomationTaskConfig>(JsonSerializer.Serialize(original))!;
-        ApplyTaskConfiguration(original, EditingTask);
+        // Capture this edit before awaiting I/O. Later keystrokes must remain pending.
+        var savedSnapshot = JsonSerializer.Serialize(EditingTask);
+        var savedDraft = JsonSerializer.Deserialize<AutomationTaskConfig>(savedSnapshot)!;
+        ApplyTaskConfiguration(original, savedDraft);
         try { await SaveAsync(); }
         catch { ApplyTaskConfiguration(original, previous); throw; }
-        DiscardTaskEdit();
+        if (keepEditing) _taskEditSnapshot = savedSnapshot;
+        else DiscardTaskEdit();
         RefreshVisibleTasks();
         OnPropertyChanged(nameof(NextRunText));
         OnPropertyChanged(nameof(NextTaskNames));
@@ -443,7 +467,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         target.CleanupRetries = source.CleanupRetries;
         target.RunAsAdministrator = source.RunAsAdministrator;
         target.ScheduledStartTime = source.ScheduledStartTime;
-        target.WakeBeforeTaskSeconds = source.WakeBeforeTaskSeconds;
         target.CompletionAction = source.CompletionAction;
         target.TrackChildren = source.TrackChildren;
         target.UseJobObject = source.UseJobObject;
@@ -468,11 +491,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (oldIndex >= 0 && newIndex >= 0) container.Move(oldIndex, newIndex);
         RefreshVisibleTasks();
     }
+    public void EndCurrentTask()
+    {
+        if (_launchCoordinator.IsBusy) _launchCoordinator.Stop();
+    }
+
     private async void ToggleSelectedTask()
     {
         if (_launchCoordinator.IsBusy)
         {
-            _launchCoordinator.Stop();
+            EndCurrentTask();
             return;
         }
 

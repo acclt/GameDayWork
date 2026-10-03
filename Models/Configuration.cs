@@ -17,7 +17,7 @@ public sealed class AutomationTaskConfig : ObservableObject
     private string _completionKeyword = "";
     private string _completionFailureKeyword = "";
     private string _description = "";
-    private int _maxRunMinutes = 60;
+    private int _maxRunMinutes = 45;
     private int _cleanupWaitSeconds = 3;
     private int _cleanupRetries = 3;
     private bool _runAsAdministrator;
@@ -29,7 +29,6 @@ public sealed class AutomationTaskConfig : ObservableObject
     private int _groupTaskIntervalSeconds = 5;
     private TaskRunStatus _status = TaskRunStatus.Idle;
     private int _displayIndex;
-    private int? _wakeBeforeTaskSeconds;
 
     public Guid Id { get; set; } = Guid.NewGuid();
     public bool IsGroup { get; set; }
@@ -91,12 +90,6 @@ public sealed class AutomationTaskConfig : ObservableObject
         {
             if (SetProperty(ref _scheduledStartTime, value?.Trim() ?? "")) RefreshNextExecutionText();
         }
-    }
-    [JsonPropertyName("wakeBeforeTaskSeconds")]
-    public int? WakeBeforeTaskSeconds
-    {
-        get => _wakeBeforeTaskSeconds;
-        set => SetProperty(ref _wakeBeforeTaskSeconds, value is null ? null : Math.Clamp(value.Value, 0, 3600));
     }
     public TaskCompletionAction CompletionAction { get => _completionAction; set => SetProperty(ref _completionAction, value); }
     public bool TrackChildren { get; set; } = true;

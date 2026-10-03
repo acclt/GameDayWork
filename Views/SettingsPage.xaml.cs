@@ -32,7 +32,7 @@ public partial class SettingsPage : UserControl
     private MainViewModel _viewModel = null!;
     private SettingsSnapshot? _snapshot;
     public bool IsSaving { get; private set; }
-    public event Action? ReturnRequested;
+
 
     public SettingsPage() => InitializeComponent();
 
@@ -53,65 +53,23 @@ public partial class SettingsPage : UserControl
         _viewModel.RunningScreenshotDelaySeconds, _viewModel.TaskIntervalSeconds,
         _viewModel.FailurePolicy, _viewModel.GenerateExecutionLog);
 
-    public async Task<bool> TryLeaveAsync()
-    {
-        if (IsSaving) return false;
-        MainWindow.UpdateInputBindings(this);
-        if (_snapshot is null) return true;
-        if (_snapshot != CaptureSnapshot() || MainWindow.HasInputErrors(this))
-        {
-            var choice = MessageBox.Show(Window.GetWindow(this), "全局设置尚未保存，是否保存后返回？", "未保存的修改",
-                MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
-            if (choice == MessageBoxResult.Cancel) return false;
-            if (choice == MessageBoxResult.Yes) return await TrySaveAsync();
-            ApplySnapshot();
-        }
-        _snapshot = null;
-        return true;
-    }
+    public bool HasChanges => _snapshot is not null && _snapshot != CaptureSnapshot();
 
-    private async Task<bool> TrySaveAsync()
+    public async Task SaveChangesAsync()
     {
-        if (IsSaving) return false;
-        MainWindow.UpdateInputBindings(this);
-        if (MainWindow.HasInputErrors(this))
-        {
-            MessageBox.Show(Window.GetWindow(this), "请检查标红的输入项，填写有效数值后再保存。", "输入无效", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return false;
-        }
+        if (MainWindow.HasInputErrors(this)) throw new InvalidOperationException("请修正标红的设置项。");
+        if (!string.IsNullOrWhiteSpace(_viewModel.WeComWebhookUrl)
+            && !WeComNotificationService.TryValidateWebhook(_viewModel.WeComWebhookUrl, out _, out var error))
+            throw new InvalidOperationException(error);
+        var savedSnapshot = CaptureSnapshot();
         IsSaving = true;
         try
         {
-            if (!string.IsNullOrWhiteSpace(_viewModel.WeComWebhookUrl)
-                && !WeComNotificationService.TryValidateWebhook(_viewModel.WeComWebhookUrl, out _, out var error))
-            {
-                MessageBox.Show(Window.GetWindow(this), error, "Webhook 地址无效", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return false;
-            }
             await _viewModel.SaveSettingsAsync();
-            _snapshot = null;
-            return true;
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(Window.GetWindow(this), ex.Message, "保存设置失败", MessageBoxButton.OK, MessageBoxImage.Error);
-            return false;
+            _snapshot = savedSnapshot;
         }
         finally { IsSaving = false; }
     }
-
-    private async void Save_Click(object sender, RoutedEventArgs e)
-    {
-        IsEnabled = false;
-        try { if (await TrySaveAsync()) ReturnRequested?.Invoke(); }
-        finally { IsEnabled = true; }
-    }
-
-    private async void Cancel_Click(object sender, RoutedEventArgs e)
-    {
-        if (await TryLeaveAsync()) ReturnRequested?.Invoke();
-    }
-
     private async void TestNotification_Click(object sender, RoutedEventArgs e)
     {
         TestNotificationButton.IsEnabled = false;
@@ -129,30 +87,6 @@ public partial class SettingsPage : UserControl
         {
             TestNotificationButton.IsEnabled = true;
         }
-    }
-
-    private void ApplySnapshot()
-    {
-        if (_snapshot is null) return;
-        _viewModel.StartWithWindows = _snapshot.StartWithWindows;
-        _viewModel.UseSystemService = _snapshot.UseSystemService;
-        _viewModel.StartMinimizedToTray = _snapshot.StartMinimizedToTray;
-        _viewModel.EnableScreenManager = _snapshot.EnableScreenManager;
-        _viewModel.IdleTimeoutMinutes = _snapshot.IdleTimeoutMinutes;
-        _viewModel.WakeBeforeTaskSeconds = _snapshot.WakeBeforeTaskSeconds;
-        _viewModel.LockScreenDisplayTimeoutEnabled = _snapshot.LockScreenDisplayTimeoutEnabled;
-        _viewModel.LockScreenDisplayTimeoutAcSeconds = _snapshot.LockScreenDisplayTimeoutAcSeconds;
-        _viewModel.LockScreenDisplayTimeoutDcSeconds = _snapshot.LockScreenDisplayTimeoutDcSeconds;
-        _viewModel.WeComWebhookUrl = _snapshot.WeComWebhookUrl;
-        _viewModel.NotifyOnStart = _snapshot.NotifyOnStart;
-        _viewModel.NotifyOnComplete = _snapshot.NotifyOnComplete;
-        _viewModel.NotifyOnFailure = _snapshot.NotifyOnFailure;
-        _viewModel.NotifyOnForcedStop = _snapshot.NotifyOnForcedStop;
-        _viewModel.CaptureTaskScreenshots = _snapshot.CaptureTaskScreenshots;
-        _viewModel.RunningScreenshotDelaySeconds = _snapshot.RunningScreenshotDelaySeconds;
-        _viewModel.TaskIntervalSeconds = _snapshot.TaskIntervalSeconds;
-        _viewModel.FailurePolicy = _snapshot.FailurePolicy;
-        _viewModel.GenerateExecutionLog = _snapshot.GenerateExecutionLog;
     }
 
     private void OpenWindowsPowerSettings_Click(object sender, RoutedEventArgs e) => _viewModel.OpenWindowsPowerSettings();

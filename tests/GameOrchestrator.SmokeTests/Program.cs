@@ -6,6 +6,8 @@ using System.Globalization;
 using System.Windows;
 
 var validator = new TaskValidationService();
+AutoSaveUiTests.Run();
+TimeSelectionTests.Run();
 var failures = new List<string>();
 void Assert(bool condition, string message) { if (!condition) failures.Add(message); }
 

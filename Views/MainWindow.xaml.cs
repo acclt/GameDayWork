@@ -31,6 +31,7 @@ public partial class MainWindow : Window
     private readonly MainViewModel _viewModel = new();
     private readonly Forms.NotifyIcon _trayIcon;
     private readonly Forms.ToolStripMenuItem _trayStatusItem;
+    private readonly Forms.ToolStripMenuItem _trayEndTaskItem;
     private readonly System.Drawing.Icon _idleTrayIcon;
     private readonly System.Drawing.Icon _runningTrayIcon;
     private Point _dragStart;
@@ -51,7 +52,8 @@ public partial class MainWindow : Window
     {
         _serviceManaged = serviceManaged;
         InitializeComponent(); DataContext = _viewModel;
-        GlobalSettingsPage.ReturnRequested += () => ShowPage(MainPage.Home);
+        _viewModel.Logs.CollectionChanged += LogsChanged;
+        InitializeAutoSave();
         _viewModel.ToggleExecutionCommand.CanExecuteChanged += (_, _) => UpdateExecutionButton();
         _viewModel.DeleteTaskCommand.CanExecuteChanged += (_, _) => UpdateExecutionButton();
         _viewModel.DuplicateTaskCommand.CanExecuteChanged += (_, _) => UpdateExecutionButton();
@@ -63,10 +65,12 @@ public partial class MainWindow : Window
         ShowInTaskbar = false;
         _viewModel.HideToTrayRequested += HideToTray;
         _trayStatusItem = new Forms.ToolStripMenuItem("状态：空闲监控") { Enabled = false };
+        _trayEndTaskItem = new Forms.ToolStripMenuItem("结束任务") { Visible = false };
+        _trayEndTaskItem.Click += (_, _) => _viewModel.EndCurrentTask();
         _trayIcon = CreateTrayIcon();
         _viewModel.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName is nameof(MainViewModel.ScreenStateText) or nameof(MainViewModel.HasActiveTask)) UpdateTrayStatus();
+            if (e.PropertyName is nameof(MainViewModel.ScreenStateText) or nameof(MainViewModel.HasActiveTask) or nameof(MainViewModel.IsExecutionBusy)) UpdateTrayStatus();
         };
         Closing += MainWindow_Closing;
     }
@@ -80,7 +84,7 @@ public partial class MainWindow : Window
         // WPF window visible. The configuration decides whether Show is ever called.
         _ = new WindowInteropHelper(this).EnsureHandle();
         await _viewModel.InitializeAsync();
-        _viewModel.Logs.CollectionChanged += LogsChanged;
+        EnableAutoSave();
         _viewModel.ValidationFailed += ShowValidationErrors;
         _viewModel.NoticeRequested += ShowNotice;
         WirePlaceholderControls();
@@ -107,6 +111,8 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        StopAutoSave();
+        _viewModel.Logs.CollectionChanged -= LogsChanged;
         if (_windowHandle != nint.Zero) UnregisterHotKey(_windowHandle, BlackoutHotKeyId);
         _windowSource?.RemoveHook(WindowMessageHook);
         _windowSource = null;
@@ -194,6 +200,7 @@ public partial class MainWindow : Window
         menu.Items.Add(_trayStatusItem);
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("显示主窗口", null, (_, _) => ShowMainWindow());
+        menu.Items.Add(_trayEndTaskItem);
         menu.Items.Add("进入黑屏", null, async (_, _) => await RunTrayActionAsync(_viewModel.EnterBlackoutAsync));
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("退出程序", null, async (_, _) => await ExitApplicationAsync());
@@ -238,13 +245,14 @@ public partial class MainWindow : Window
     private void UpdateTrayStatus()
     {
         _trayStatusItem.Text = $"状态：{_viewModel.ScreenStateText}";
+        _trayEndTaskItem.Visible = _viewModel.IsExecutionBusy;
         _trayIcon.Text = $"GameDayWork - {_viewModel.ScreenStateText}";
         _trayIcon.Icon = _viewModel.HasActiveTask ? _runningTrayIcon : _idleTrayIcon;
     }
 
     private static System.Drawing.Icon LoadTrayIcon(string relativePath)
     {
-        var resource = Application.GetResourceStream(new Uri($"pack://application:,,,/{relativePath}", UriKind.Absolute))
+        var resource = Application.GetResourceStream(new Uri($"pack://application:,,,/GameDayWork;component/{relativePath}", UriKind.Absolute))
             ?? throw new InvalidOperationException($"找不到托盘图标资源：{relativePath}");
         using (resource.Stream)
         using (var icon = new System.Drawing.Icon(resource.Stream))
@@ -308,6 +316,7 @@ public partial class MainWindow : Window
         MoveUpButton.IsEnabled = !_viewModel.IsExecutionBusy && index > 0;
         MoveDownButton.IsEnabled = !_viewModel.IsExecutionBusy && index >= 0 && index < container.Count - 1;
         GroupSettingsPanel.IsEnabled = !_viewModel.IsExecutionBusy;
+        TaskSettingsPanel.IsEnabled = !_viewModel.IsExecutionBusy;
     }
 
     private void SetNavigationPending(bool pending)
@@ -331,21 +340,19 @@ public partial class MainWindow : Window
         TasksPage.Visibility = Visibility.Visible;
         TaskEditPage.Visibility = page == MainPage.TaskEdit ? Visibility.Visible : Visibility.Collapsed;
         GlobalSettingsPage.Visibility = page == MainPage.Settings ? Visibility.Visible : Visibility.Collapsed;
-        NavigationBar.Visibility = page == MainPage.Home ? Visibility.Collapsed : Visibility.Visible;
         var isGroup = _viewModel.EditingTask?.IsGroup == true;
         var isChild = _viewModel.EditingTask?.IsGroupChild == true;
         TaskSettingsPanel.Visibility = isGroup ? Visibility.Collapsed : Visibility.Visible;
         GroupSettingsPanel.Visibility = isGroup ? Visibility.Visible : Visibility.Collapsed;
-        TaskScheduleFields.Visibility = TaskWakeFields.Visibility = TaskDurationFields.Visibility = isChild ? Visibility.Collapsed : Visibility.Visible;
+        TaskScheduleFields.Visibility = TaskDurationFields.Visibility = isChild ? Visibility.Collapsed : Visibility.Visible;
         GroupScheduleHint.Visibility = isChild ? Visibility.Visible : Visibility.Collapsed;
-        PageTitle.Text = page switch { MainPage.TaskEdit => isGroup ? "任务组设置" : "单任务配置", MainPage.Settings => "全局设置", _ => "主页" };
         UpdateExecutionButton();
         if (page == MainPage.Home) LogsChanged(null, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
     }
 
     private async Task<bool> NavigateAsync(MainPage page, AutomationTaskConfig? task = null)
     {
-        if (_navigationPending || _closingPending || GlobalSettingsPage.IsSaving) return false;
+        if (_navigationPending || _closingPending) return false;
         if (_page == page && (page != MainPage.TaskEdit || task == _viewModel.EditingTaskTarget)) return true;
         var previousSelection = _viewModel.EditingTaskTarget ?? (task is not null ? _selectionBeforePointer : null) ?? _viewModel.SelectedTask;
         SetNavigationPending(true);
@@ -369,15 +376,7 @@ public partial class MainWindow : Window
 
     private async Task<bool> TryLeavePageAsync()
     {
-        if (_page == MainPage.Settings) return await GlobalSettingsPage.TryLeaveAsync();
-        if (_page != MainPage.TaskEdit) return true;
-        UpdateInputBindings(TaskEditPage);
-        if (_viewModel.HasTaskEdits || HasInputErrors(TaskEditPage))
-        {
-            var choice = MessageBox.Show(this, "当前任务有未保存的修改，是否保存？", "未保存的修改", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
-            if (choice == MessageBoxResult.Cancel) return false;
-            if (choice == MessageBoxResult.Yes) return await SaveTaskEditAsync();
-        }
+        if (!await FlushAutoSaveAsync(showErrors: true)) return false;
         _viewModel.DiscardTaskEdit();
         return true;
     }
@@ -394,28 +393,6 @@ public partial class MainWindow : Window
 
     internal static bool HasInputErrors(DependencyObject root) => Validation.GetHasError(root)
         || InputElements(root).Any(Validation.GetHasError);
-
-    private async Task<bool> SaveTaskEditAsync()
-    {
-        if (HasInputErrors(TaskEditPage))
-        {
-            MessageBox.Show(this, "请检查标红的输入项，填写有效数值后再保存。", "输入无效", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return false;
-        }
-        if (_viewModel.EditingTask is { } draft && string.IsNullOrWhiteSpace(draft.Name))
-        {
-            MessageBox.Show(this, "请填写名称后再保存。", "输入无效", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return false;
-        }
-        if (_viewModel.EditingTask is { } task && !string.IsNullOrWhiteSpace(task.ScheduledStartTime)
-            && !SchedulerService.TryParseTime(task.ScheduledStartTime, out _))
-        {
-            MessageBox.Show(this, "定时启动时间请填写 HH:mm 或 HH:mm:ss，留空表示不单独定时。", "输入无效", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return false;
-        }
-        try { await _viewModel.SaveTaskEditAsync(); return true; }
-        catch (Exception ex) { MessageBox.Show(this, ex.Message, "保存配置失败", MessageBoxButton.OK, MessageBoxImage.Error); return false; }
-    }
 
     private async void DeleteTask_Click(object sender, RoutedEventArgs e)
     {
@@ -434,12 +411,6 @@ public partial class MainWindow : Window
         if (!_viewModel.IsExecutionBusy && await NavigateAsync(MainPage.Home)) { _viewModel.MoveDownCommand.Execute(null); UpdateExecutionButton(); }
     }
 
-    private async void SaveList_Click(object sender, RoutedEventArgs e)
-    {
-        if (!await NavigateAsync(MainPage.Home)) return;
-        try { await _viewModel.SaveAsync(); MessageBox.Show(this, "任务列表已保存。", "保存列表", MessageBoxButton.OK, MessageBoxImage.Information); }
-        catch (Exception ex) { MessageBox.Show(this, ex.Message, "保存列表失败", MessageBoxButton.OK, MessageBoxImage.Error); }
-    }
     private void WirePlaceholderControls()
     {
         foreach (var level in new[] { "INFO", "SUCCESS", "WARNING", "ERROR" }) LogFilter.Items.Add(new ComboBoxItem { Content = level });
@@ -449,6 +420,7 @@ public partial class MainWindow : Window
     {
         var selected = ((sender as ComboBox)?.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "全部";
         CollectionViewSource.GetDefaultView(_viewModel.Logs).Filter = item => selected == "全部" || item is LogEntry entry && entry.LevelText == selected;
+        RequestLogScroll();
     }
     private static IEnumerable<FrameworkElement> InputElements(DependencyObject root)
     {
@@ -468,17 +440,6 @@ public partial class MainWindow : Window
                     if (child is DependencyObject dependency) pending.Push(dependency);
         }
     }
-    private async void SaveConfig_Click(object sender, RoutedEventArgs e)
-    {
-        if (_navigationPending) return;
-        SetNavigationPending(true);
-        try
-        {
-            UpdateInputBindings(TaskEditPage);
-            if (await SaveTaskEditAsync()) ShowPage(MainPage.Home);
-        }
-        finally { SetNavigationPending(false); }
-    }
     private void ExportLogs_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new SaveFileDialog { Filter = "文本日志 (*.txt)|*.txt", FileName = $"GameDayWork-{DateTime.Now:yyyyMMdd-HHmmss}.txt" };
@@ -493,8 +454,26 @@ public partial class MainWindow : Window
     private void Maximize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
     private void Close_Click(object sender, RoutedEventArgs e) => Close();
     private void LogsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        => RequestLogScroll();
+
+    private void LogList_Loaded(object sender, RoutedEventArgs e) => RequestLogScroll();
+
+    private void LogList_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
-        if (_viewModel.Logs.Count == 0 || _logScrollPending) return;
+        if (e.NewValue is true) RequestLogScroll();
+    }
+
+    private void LogList_ScrollChanged(object sender, ScrollChangedEventArgs e)
+    {
+        // Virtualized rows can change the extent after a scroll request. Follow the
+        // final layout, including wrapped messages and window size changes.
+        if (e.ExtentHeightChange != 0 || e.ViewportHeightChange != 0 || e.ViewportWidthChange != 0)
+            RequestLogScroll();
+    }
+
+    private void RequestLogScroll()
+    {
+        if (LogList is null || LogList.Items.Count == 0 || _logScrollPending) return;
 
         // CollectionChanged is raised while WPF is still updating the ItemsControl. Calling
         // ScrollIntoView synchronously here can re-enter its item generator and leave it out
@@ -504,12 +483,13 @@ public partial class MainWindow : Window
         Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, () =>
         {
             _logScrollPending = false;
-            if (_viewModel.Logs.LastOrDefault() is not { } lastEntry) return;
+            if (LogList.Items.Count == 0 || _exitRequested) return;
 
             try
             {
-                // The active log filter may exclude the newest entry.
-                if (LogList.Items.Contains(lastEntry)) LogList.ScrollIntoView(lastEntry);
+                // Use the filtered view's last row and align its bottom, even when
+                // a single message is taller than the viewport.
+                InputElements(LogList).OfType<ScrollViewer>().FirstOrDefault()?.ScrollToEnd();
             }
             catch (InvalidOperationException ex)
             {
@@ -559,8 +539,8 @@ public partial class MainWindow : Window
         SetNavigationPending(true);
         try
         {
-            UpdateInputBindings(TaskEditPage);
-            if (!await SaveTaskEditAsync()) return;
+            if (!await FlushAutoSaveAsync(showErrors: true)) return;
+            _viewModel.DiscardTaskEdit();
             if (add)
             {
                 group.Children.Add(new AutomationTaskConfig { IsGroupChild = true, CompletionAction = TaskCompletionAction.RunNext });
